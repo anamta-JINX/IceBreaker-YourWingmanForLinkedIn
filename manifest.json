@@ -1,0 +1,105 @@
+{
+  "manifest_version": 3,
+  "name": "IceBreaker — Your Wingman for LinkedIn",
+  "short_name": "IceBreaker",
+  "version": "1.4.90",
+  "version_name": "1.4.90 Stable AI Generation",
+  "description": "IceBreaker — 𝗬𝗼𝘂𝗿 𝗪𝗶𝗻𝗴𝗺𝗮𝗻 𝗳𝗼𝗿 𝗟𝗶𝗻𝗸𝗲𝗱𝗜𝗻. Create smart DMs, comments and replies with Groq, Ollama, OpenRouter or your own API.",
+  "minimum_chrome_version": "116",
+  "homepage_url": "https://github.com/anamta-JINX/IceBreaker---Your_Wingman_For_LinkedIn",
+  "permissions": [
+    "storage",
+    "sidePanel",
+    "tabs",
+    "scripting",
+    "clipboardWrite",
+    "unlimitedStorage",
+    "alarms"
+  ],
+  "host_permissions": [
+    "https://www.linkedin.com/*",
+    "http://127.0.0.1/*",
+    "https://openrouter.ai/*",
+    "https://api.openrouter.ai/*",
+    "https://api.groq.com/*",
+    "https://github.com/*",
+    "https://api.github.com/*"
+  ],
+  "background": {
+    "service_worker": "src/backend/background/service-worker.js",
+    "type": "module"
+  },
+  "commands": {
+    "force-generate-and-copy": {
+      "suggested_key": {
+        "default": "Alt+C",
+        "mac": "Alt+C"
+      },
+      "description": "Copy the current generated IceBreaker text to the clipboard"
+    },
+    "regenerate-current-text": {
+      "suggested_key": {
+        "default": "Alt+G",
+        "mac": "Alt+G"
+      },
+      "description": "Generate a fresh IceBreaker DM, comment, or conversation reply"
+    },
+    "start-autopilot-from-hover": {
+      "suggested_key": {
+        "default": "Alt+S",
+        "mac": "Alt+S"
+      },
+      "description": "Start Connections Autopilot from the connection currently under the mouse"
+    }
+  },
+  "action": {
+    "default_title": "Open IceBreaker",
+    "default_icon": {
+      "16": "assets/icons/icon16.png",
+      "32": "assets/icons/icon32.png",
+      "48": "assets/icons/icon48.png",
+      "128": "assets/icons/icon128.png"
+    }
+  },
+  "side_panel": {
+    "default_path": "src/frontend/sidepanel/index.html"
+  },
+  "options_page": "src/frontend/options/index.html",
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.linkedin.com/*"
+      ],
+      "js": [
+        "src/backend/content/linkedin-content.js"
+      ],
+      "css": [
+        "src/backend/content/linkedin-content.css"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "16": "assets/icons/icon16.png",
+    "32": "assets/icons/icon32.png",
+    "48": "assets/icons/icon48.png",
+    "128": "assets/icons/icon128.png"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "assets/icons/icon16.png"
+      ],
+      "matches": [
+        "https://www.linkedin.com/*"
+      ]
+    }
+  ],
+  "optional_host_permissions": [
+    "https://*/*",
+    "http://*/*"
+  ]
+}

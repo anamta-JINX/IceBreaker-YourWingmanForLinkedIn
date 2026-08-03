@@ -1,0 +1,9 @@
+ICEBREAKER CONFIGURATION NOTICE
+
+This repository package does not include private Groq or OpenRouter credentials.
+Use config/.env.example only as a local template. The generated runtime file at
+src/backend/config/official-api-keys.js contains an empty public-safe placeholder
+unless you intentionally create a private local build.
+
+Never commit or distribute config/.env or real provider keys. For a public product,
+use a secured backend proxy with authentication, quotas, revocation and per-user limits.

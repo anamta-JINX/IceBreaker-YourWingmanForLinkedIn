@@ -1,0 +1,57 @@
+name: Bug report
+description: Report a reproducible IceBreaker problem
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: "Remove API keys, résumé text, profile data, and private messages from every log and screenshot."
+  - type: input
+    id: version
+    attributes:
+      label: IceBreaker version
+      placeholder: 1.4.62
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - DMs
+        - Comments
+        - Conversation
+        - Autopilot
+        - Groq
+        - OpenRouter
+        - Ollama
+        - Settings
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: List the smallest reliable sequence.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour and sanitised error
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Privacy check
+      options:
+        - label: I removed all credentials and private LinkedIn/résumé data.
+          required: true

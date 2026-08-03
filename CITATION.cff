@@ -1,0 +1,11 @@
+cff-version: 1.2.0
+message: "If you use IceBreaker in your work, please cite this repository."
+title: "IceBreaker — Your Wingman for LinkedIn"
+type: software
+authors:
+  - family-names: Gohar
+    given-names: Anamta
+version: 1.4.77
+date-released: 2026-07-30
+license: MIT
+repository-code: "https://github.com/anamta-JINX/IceBreaker---Your_Wingman_For_LinkedIn"

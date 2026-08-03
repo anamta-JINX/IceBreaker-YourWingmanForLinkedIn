@@ -1,0 +1,55 @@
+name: Validate extension
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Create safe runtime key placeholder
+        run: cp src/backend/config/official-api-keys.example.js src/backend/config/official-api-keys.js
+
+      - name: Validate manifest and referenced paths
+        run: node scripts/github/validate-extension.mjs
+
+      - name: Check JavaScript syntax
+        shell: bash
+        run: |
+          while IFS= read -r -d '' file; do
+            echo "Checking $file"
+            node --check "$file"
+          done < <(find src scripts -type f \( -name '*.js' -o -name '*.mjs' \) -print0)
+
+      - name: Block private files from Git
+        shell: bash
+        run: |
+          forbidden=("config/.env" "src/backend/config/official-api-keys.js")
+          for file in "${forbidden[@]}"; do
+            if git ls-files --error-unmatch "$file" >/dev/null 2>&1; then
+              echo "::error file=$file::Private generated file must not be tracked."
+              exit 1
+            fi
+          done
+
+      - name: Check for likely API keys
+        shell: bash
+        run: |
+          if git grep -nE '(gsk_[A-Za-z0-9_-]{20,}|sk-or-v1-[A-Za-z0-9_-]{20,})' -- ':!*.md' ':!*.example.*' ':!config/.env.example'; then
+            echo "::error::A likely API key was found in tracked files. Revoke it and remove it from Git history."
+            exit 1
+          fi

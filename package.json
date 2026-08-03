@@ -1,0 +1,15 @@
+{
+  "name": "icebreaker-linkedin-extension",
+  "version": "1.4.90",
+  "private": true,
+  "description": "IceBreaker Chrome extension with component-based React side panel and settings frontend.",
+  "scripts": {
+    "validate:manifest": "node scripts/github/validate-extension.mjs",
+    "validate:react": "node scripts/github/validate-react-structure.mjs",
+    "validate": "npm run validate:manifest && npm run validate:react"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT"
+}

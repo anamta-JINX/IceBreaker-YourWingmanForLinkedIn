@@ -1,0 +1,70 @@
+# ============================================================
+# IceBreaker — Git ignore rules
+# ============================================================
+
+# Private API credentials
+config/.env
+config/.env.local
+config/.env.*
+!config/.env.example
+
+# Generated embedded-key module (NEVER commit this file)
+src/backend/config/official-api-keys.js
+!src/backend/config/official-api-keys.example.js
+
+# Signing keys and certificates
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+
+# Local release packages
+build/
+dist/
+release/
+releases/
+*.crx
+*.vsix
+*.zip
+
+# Dependencies, caches, test output
+node_modules/
+.cache/
+.tmp/
+tmp/
+coverage/
+.nyc_output/
+test-results/
+playwright-report/
+screenshots-local/
+
+# Logs and temporary files
+*.log
+*.bak
+*.backup
+*.tmp
+*.swp
+*.swo
+*~
+
+# Editor settings
+.vscode/
+!.vscode/extensions.json
+.idea/
+*.code-workspace
+
+# Operating-system files
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Python helper artefacts
+__pycache__/
+*.py[cod]
+.venv/
+venv/

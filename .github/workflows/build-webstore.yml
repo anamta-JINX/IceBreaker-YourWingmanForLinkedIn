@@ -1,0 +1,31 @@
+name: Build public Web Store package
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Create safe runtime key placeholder
+        run: cp src/backend/config/official-api-keys.example.js src/backend/config/official-api-keys.js
+      - name: Validate
+        run: node scripts/github/validate-extension.mjs
+      - name: Build Web Store ZIP
+        shell: bash
+        run: bash scripts/github/build-webstore.sh
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: icebreaker-webstore
+          path: release/*.zip
