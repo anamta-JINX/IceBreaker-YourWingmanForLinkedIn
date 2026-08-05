@@ -30,6 +30,27 @@ const state = {
   autopilotDraftsCount: 0
 };
 
+const TONE_OPTIONS_BY_MODE = Object.freeze({
+  dms: Object.freeze([
+    Object.freeze({ value: "professional", label: "Professional" }),
+    Object.freeze({ value: "neutral", label: "Casual" }),
+    Object.freeze({ value: "funny", label: "Funny" }),
+    Object.freeze({ value: "engaging", label: "Engaging" })
+  ]),
+  comments: Object.freeze([
+    Object.freeze({ value: "professional", label: "Friendly" }),
+    Object.freeze({ value: "funny", label: "Funny" }),
+    Object.freeze({ value: "neutral", label: "Insightful" }),
+    Object.freeze({ value: "engaging", label: "Supportive" })
+  ]),
+  conversation: Object.freeze([
+    Object.freeze({ value: "neutral", label: "Friendly" }),
+    Object.freeze({ value: "professional", label: "Professional" }),
+    Object.freeze({ value: "engaging", label: "Supportive" }),
+    Object.freeze({ value: "funny", label: "Funny" })
+  ])
+});
+
 const elements = {
   settingsButton: document.getElementById("settingsButton"),
   openResumeSettings: document.getElementById("openResumeSettings"),
@@ -78,18 +99,23 @@ const elements = {
   contextToggleButton: document.getElementById("contextToggleButton"),
   contextCount: document.getElementById("contextCount"),
   recentContextLabel: document.getElementById("recentContextLabel"),
+  commentReactionCount: document.getElementById("commentReactionCount"),
+  commentReplyCount: document.getElementById("commentReplyCount"),
   matchChip: document.getElementById("matchChip"),
   matchPanel: document.getElementById("matchPanel"),
   matchScore: document.getElementById("matchScore"),
   matchBar: document.getElementById("matchBar"),
   matchReasons: document.getElementById("matchReasons"),
+  styleControls: document.querySelector(".ib-style-controls"),
   toneControl: document.getElementById("toneControl"),
   lengthControl: document.getElementById("lengthControl"),
+  actionDock: document.querySelector(".action-dock"),
   refreshButton: document.getElementById("refreshButton"),
   draftEyebrow: document.getElementById("draftEyebrow"),
   draftTitle: document.getElementById("draftTitle"),
   draftLoading: document.getElementById("draftLoading"),
   messageEditor: document.getElementById("messageEditor"),
+  draftCharCount: document.getElementById("draftCharCount"),
   lowMatchActions: document.getElementById("lowMatchActions"),
   pinnedDraft: document.getElementById("pinnedDraft"),
   copyButton: document.getElementById("copyButton"),
@@ -119,6 +145,8 @@ const elements = {
   autopilotStopButton: document.getElementById("autopilotStopButton"),
   autopilotSettingsButton: document.getElementById("autopilotSettingsButton"),
 };
+
+const MAX_CONVERSATION_CONTEXT_MESSAGES = 15;
 
 sidePanelLifecyclePort?.onMessage.addListener((message) => {
   if (message?.type !== "ICEBREAKER_GET_CURRENT_DRAFT" || !message.requestId) return;
@@ -214,6 +242,7 @@ function bindEvents() {
 
   elements.messageEditor.addEventListener("input", () => {
     state.draft = elements.messageEditor.value;
+    updateDraftCharCount();
     updateCopyState();
     scheduleDraftPersistence();
   });
@@ -225,7 +254,7 @@ async function loadSavedState() {
   state.settings = settings || {};
   state.resumeMeta = resumeText ? (resumeMeta || { fileName: "Saved résumé" }) : null;
   state.mode = normalizeMode(state.settings.generationMode);
-  state.tone = state.settings.defaultTone || "professional";
+  state.tone = normalizeTone(state.settings.defaultTone);
   state.length = state.settings.defaultLength || "medium";
 
   updateSegmentedControl(elements.modeControl, state.mode);
@@ -354,7 +383,7 @@ function renderAutopilot() {
         ? "IceBreaker is scanning from your selected connection and moving forward as soon as each résumé-backed draft is verified."
         : `${state.autopilotDraftsCount || 0} saved draft record${Number(state.autopilotDraftsCount || 0) === 1 ? "" : "s"}. Configure the target role and AI Resume in Drafts & Settings.`;
   document.body.classList.toggle("autopilot-running", active);
-  elements.stopRefreshButtonLabel.textContent = active ? "Stop Autopilot" : "Stop & Refresh";
+  elements.stopRefreshButtonLabel.textContent = active ? "Stop Autopilot" : "Reset";
   elements.stopRefreshButton.title = active ? "Stop Autopilot immediately" : "Stop current work and reset the draft";
   elements.autopilotSettingsButton.textContent = "Drafts & Settings";
   if (elements.autopilotErrorCode) {
@@ -366,6 +395,32 @@ function renderAutopilot() {
 
 function normalizeMode(mode) {
   return ["dms", "comments", "conversation"].includes(mode) ? mode : "dms";
+}
+
+function normalizeTone(tone) {
+  return ["professional", "neutral", "funny", "engaging"].includes(tone) ? tone : "professional";
+}
+
+function toneOptions(mode = state.mode) {
+  return TONE_OPTIONS_BY_MODE[normalizeMode(mode)] || TONE_OPTIONS_BY_MODE.dms;
+}
+
+function selectedToneLabel(mode = state.mode, tone = state.tone) {
+  return toneOptions(mode).find((option) => option.value === tone)?.label || toneOptions(mode)[0].label;
+}
+
+function configureToneControl(mode = state.mode) {
+  const options = toneOptions(mode);
+  const buttons = [...elements.toneControl.querySelectorAll("button[data-value]")];
+  buttons.forEach((button) => {
+    const index = options.findIndex((option) => option.value === button.dataset.value);
+    const option = index >= 0 ? options[index] : null;
+    button.style.order = String(index >= 0 ? index + 1 : options.length + 1);
+    button.dataset.displayLabel = option?.label || button.textContent.trim();
+    button.setAttribute("aria-label", option?.label || button.textContent.trim());
+    button.title = option?.label || button.textContent.trim();
+  });
+  updateSegmentedControl(elements.toneControl, state.tone);
 }
 
 async function changeMode(mode) {
@@ -395,48 +450,62 @@ function modeInstruction(mode = state.mode) {
 
 function modeLabels(mode = state.mode) {
   if (mode === "comments") return {
-    title: "Turn posts into thoughtful comments.",
-    description: "Hover over a LinkedIn post. IceBreaker reads the visible post and drafts one relevant comment.",
+    title: "Hover a LinkedIn post",
+    description: "Point your cursor at a post or comment to instantly draft a relevant response.",
     draftEyebrow: "Post engagement",
-    draftTitle: "Comments",
-    copy: "Copy comment",
-    capture: "Use visible post",
+    draftTitle: "AI Draft",
+    copy: "Copy Comment",
+    capture: "Read current page",
     placeholder: "Your post-aware comment will appear automatically."
   };
   if (mode === "conversation") return {
-    title: "Reply with the full thread in mind.",
-    description: "Hover over an inbox conversation row or the visible chat. IceBreaker opens the row when needed, reads the recent messages, and drafts one contextual reply.",
+    title: "Hover a LinkedIn conversation",
+    description: "Open a conversation and IceBreaker will read the visible thread to draft a contextual reply.",
     draftEyebrow: "Inbox assistant",
-    draftTitle: "Reply",
-    copy: "Copy reply",
-    capture: "Use visible conversation",
+    draftTitle: "AI Suggested Reply",
+    copy: "Copy Reply",
+    capture: "Read current page",
     placeholder: "Your context-aware reply will appear automatically."
   };
   return {
-    title: "Hover. Generate. Connect.",
-    description: "Hover a profile or commenter. IceBreaker can use their matched comment and related post to personalise a private DM.",
+    title: "Hover a LinkedIn profile",
+    description: "Point your cursor at any name in your feed or inbox to instantly draft a personalized icebreaker.",
     draftEyebrow: "Personalized outreach",
     draftTitle: "Message",
-    copy: "Copy message",
-    capture: "Use current profile",
+    copy: "Copy Message",
+    capture: "Read current page",
     placeholder: "Your personalized, spaced message will appear automatically."
   };
 }
 
 function renderModeUI() {
   document.body.dataset.mode = state.mode;
+  configureToneControl(state.mode);
+  placeStyleControlsForMode();
   const labels = modeLabels();
   elements.emptyTitle.textContent = labels.title;
   elements.emptyDescription.textContent = labels.description;
-  elements.shortcutDescription.textContent = "copy text";
+  elements.shortcutDescription.textContent = "COPY";
   elements.captureEmptyLabel.textContent = labels.capture;
   elements.captureButtonLabel.textContent = labels.capture;
   elements.draftEyebrow.textContent = state.mode === "comments" ? "Post-aware comment · editable" : state.mode === "conversation" ? "Context-aware reply · editable" : "Personalised DM · editable";
   elements.draftTitle.textContent = labels.draftTitle;
-  elements.copyButtonLabel.textContent = "Copy";
+  elements.copyButtonLabel.textContent = labels.copy;
   elements.messageEditor.placeholder = labels.placeholder;
   elements.resumeNotice.classList.toggle("hidden", state.mode !== "dms" || Boolean(state.resumeMeta));
   elements.matchPanel.classList.toggle("hidden", state.mode !== "dms" || !state.draft);
+}
+
+function placeStyleControlsForMode() {
+  const controls = elements.styleControls;
+  if (!controls || !elements.pinnedDraft || !elements.draftLoading) return;
+  if (state.mode === "conversation") {
+    if (elements.actionDock?.nextElementSibling !== controls) elements.actionDock?.after(controls);
+    return;
+  }
+  if (controls.parentElement !== elements.pinnedDraft) {
+    elements.pinnedDraft.insertBefore(controls, elements.draftLoading);
+  }
 }
 
 function normalizeApiAccessMode(value) {
@@ -764,8 +833,9 @@ async function loadShortcut() {
     state.shortcut = "Alt+C";
     state.regenerateShortcut = "Alt+G";
   }
-  elements.shortcutKey.textContent = state.shortcut;
-  if (elements.regenerateShortcutKey) elements.regenerateShortcutKey.textContent = state.regenerateShortcut;
+  const displayShortcut = (value) => String(value || "").replace(/\s*\+\s*/g, " + ");
+  elements.shortcutKey.textContent = displayShortcut(state.shortcut);
+  if (elements.regenerateShortcutKey) elements.regenerateShortcutKey.textContent = displayShortcut(state.regenerateShortcut);
 }
 
 async function loadActiveProfile() {
@@ -912,6 +982,7 @@ function renderProfile() {
   elements.emptyState.classList.toggle("hidden", hasContext);
   elements.workspace.classList.toggle("hidden", !hasContext);
   elements.pinnedDraft.classList.toggle("hidden", !hasContext);
+  elements.styleControls?.classList.toggle("hidden", !hasContext);
   if (!hasContext) return;
 
   const mode = normalizeMode(profile.mode || state.mode);
@@ -930,13 +1001,24 @@ function renderProfile() {
   const location = String(profile.location || "").trim();
 
   elements.contextCard?.setAttribute("data-context-mode", mode);
+  if (elements.contextCard) {
+    const postUrl = mode === "comments"
+      ? (profile.parentPostUrl || profile.postUrl || profile.url || "#")
+      : "#";
+    elements.contextCard.dataset.postUrl = postUrl;
+  }
   elements.contextSubjectLabel.textContent = mode === "comments"
-    ? "Post owner"
+    ? "Reading context"
     : mode === "conversation"
-      ? "Conversation with"
+      ? "Active thread"
       : "Profile";
 
+  const avatarUrl = resolveContextAvatarUrl(profile, mode);
   elements.profileInitials.textContent = initials(displayName || (mode === "comments" ? "Post" : mode === "conversation" ? "Chat" : "IB"));
+  elements.profileInitials.classList.toggle("has-avatar", Boolean(avatarUrl));
+  elements.profileInitials.style.backgroundImage = avatarUrl ? `url(${JSON.stringify(avatarUrl)})` : "";
+  elements.profileInitials.setAttribute("role", avatarUrl ? "img" : "presentation");
+  elements.profileInitials.setAttribute("aria-label", avatarUrl ? `${displayName} profile photo` : `${displayName} initials`);
   elements.profileName.textContent = displayName;
   elements.profileName.title = displayName;
   elements.profileName.href = identityUrl;
@@ -952,16 +1034,38 @@ function renderProfile() {
   elements.companyFact.classList.toggle("is-empty", !company);
   elements.locationFact.classList.toggle("is-empty", mode !== "comments" && !location);
 
-  elements.profileMeta.textContent = profileIdentityLabel(identityUrl, mode, profile.contentType);
+  const messageCount = Number(profile.messageCount) || 0;
+  elements.profileMeta.textContent = mode === "conversation"
+    ? `${messageCount ? `${messageCount} MESSAGE${messageCount === 1 ? "" : "S"} • ` : ""}${String(role || "LinkedIn contact").toUpperCase()}`
+    : mode === "comments"
+      ? `Post • ${String(profile.postAge || profile.parentPostAge || "LinkedIn").trim()}`
+      : profileIdentityLabel(identityUrl, mode, profile.contentType);
   elements.profileMeta.href = identityUrl;
   elements.profileMeta.title = identityUrl === "#" ? "LinkedIn context" : identityUrl;
 
+  if (elements.commentReactionCount) {
+    elements.commentReactionCount.textContent = mode === "comments"
+      ? normalizeEngagementCount(profile.reactionCount || profile.parentPostReactionCount)
+      : "—";
+  }
+  if (elements.commentReplyCount) {
+    elements.commentReplyCount.textContent = mode === "comments"
+      ? normalizeEngagementCount(profile.commentCount || profile.parentPostCommentCount)
+      : "—";
+  }
+
   elements.recentContextLabel.textContent = mode === "comments"
-    ? (profile.contentType === "comment" ? "Hovered comment content" : "Hovered post content")
+    ? (profile.contentType === "comment" ? "Hovered comment" : "LinkedIn post")
     : mode === "conversation"
-      ? "Captured conversation content"
-      : "Recent profile context";
-  elements.contextBody.textContent = contextText || "No recent context captured.";
+      ? "Last 24h"
+      : "Visible context";
+  if (mode === "conversation") renderConversationThread(profile, contextText);
+  else {
+    elements.contextBody.removeAttribute("role");
+    elements.contextBody.removeAttribute("aria-label");
+    elements.contextBody.removeAttribute("tabindex");
+    elements.contextBody.textContent = contextText || "No recent context captured.";
+  }
   elements.contextSecondaryBody.textContent = secondaryContextText;
   elements.contextSecondaryBody.classList.toggle("hidden", !secondaryContextText);
   elements.contextCard?.classList.remove("is-expanded");
@@ -971,11 +1075,135 @@ function renderProfile() {
     elements.contextToggleButton.textContent = "Show more";
     elements.contextToggleButton.setAttribute("aria-expanded", "false");
   }
-  elements.contextCount.textContent = mode === "conversation" && Number(profile.messageCount)
-    ? `${profile.messageCount} message${Number(profile.messageCount) === 1 ? "" : "s"}`
+  const visibleContextItems = String(contextText || "")
+    .split(/(?:\n+|•)/)
+    .map((item) => item.trim())
+    .filter(Boolean).length;
+  elements.contextCount.textContent = mode === "conversation"
+    ? (messageCount ? `${Math.min(messageCount, MAX_CONVERSATION_CONTEXT_MESSAGES)} latest` : "Latest")
     : mode === "comments"
-      ? (profile.contentType === "comment" ? "Comment" : "Post")
-      : "Profile";
+      ? (profile.contentType === "comment" ? "LinkedIn Comment" : "LinkedIn Post")
+      : String(Math.max(1, Math.min(99, visibleContextItems))).padStart(2, "0");
+}
+
+function renderConversationThread(profile, transcript) {
+  if (!elements.contextBody) return;
+  const messages = conversationMessagesForDisplay(profile, transcript);
+  elements.contextBody.setAttribute("role", "log");
+  elements.contextBody.setAttribute("aria-label", `Latest ${Math.min(messages.length, MAX_CONVERSATION_CONTEXT_MESSAGES)} conversation messages used for this reply`);
+  elements.contextBody.setAttribute("tabindex", "0");
+  if (!messages.length) {
+    elements.contextBody.textContent = transcript || "No recent context captured.";
+    return;
+  }
+
+  const fragment = document.createDocumentFragment();
+  messages.slice(-MAX_CONVERSATION_CONTEXT_MESSAGES).forEach((message) => {
+    const direction = message.direction === "self" ? "self" : message.direction === "contact" ? "contact" : "unknown";
+    const item = document.createElement("div");
+    item.className = `ib-thread-message is-${direction}`;
+
+    if (message.timestamp) {
+      const time = document.createElement("time");
+      time.className = "ib-thread-time";
+      time.textContent = message.timestamp;
+      item.append(time);
+    }
+
+    const bubble = document.createElement("div");
+    bubble.className = "ib-thread-bubble";
+    bubble.textContent = message.text;
+    item.append(bubble);
+    fragment.append(item);
+  });
+  elements.contextBody.replaceChildren(fragment);
+  const scrollToNewest = () => {
+    elements.contextBody.scrollTop = elements.contextBody.scrollHeight;
+  };
+  scrollToNewest();
+  requestAnimationFrame(() => requestAnimationFrame(scrollToNewest));
+  setTimeout(scrollToNewest, 120);
+}
+
+function conversationMessagesForDisplay(profile, transcript) {
+  const supplied = Array.isArray(profile?.conversationMessages)
+    ? profile.conversationMessages
+        .map((message) => ({
+          direction: normalizeConversationDirection(message?.direction, message?.sender),
+          text: String(message?.text || "").replace(/\s+/g, " ").trim(),
+          timestamp: normalizeConversationTime(message?.timestamp || message?.time || message?.sentAt)
+        }))
+        .filter((message) => message.text)
+    : [];
+  if (supplied.length) return supplied;
+
+  const value = String(transcript || "");
+  const marker = /\[(YOU|CONTACT(?:\s*-\s*[^\]]+)?|UNKNOWN SENDER)\]\s*:\s*/gi;
+  const matches = [...value.matchAll(marker)];
+  return matches.map((match, index) => {
+    const start = Number(match.index || 0) + match[0].length;
+    const end = index + 1 < matches.length ? Number(matches[index + 1].index || value.length) : value.length;
+    const sender = match[1];
+    return {
+      direction: normalizeConversationDirection(sender === "YOU" ? "self" : sender.startsWith("CONTACT") ? "contact" : "unknown", sender),
+      text: value.slice(start, end).replace(/\s+/g, " ").trim(),
+      timestamp: ""
+    };
+  }).filter((message) => message.text);
+}
+
+function normalizeConversationDirection(direction, sender = "") {
+  const value = `${direction || ""} ${sender || ""}`.toLowerCase();
+  if (/\b(?:self|you|outgoing|sent)\b/.test(value)) return "self";
+  if (/\b(?:contact|incoming|received|other)\b/.test(value)) return "contact";
+  return "unknown";
+}
+
+function normalizeConversationTime(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  const direct = text.match(/\b(?:[01]?\d|2[0-3]):[0-5]\d(?:\s*[AP]M)?\b/i)?.[0];
+  if (direct) return direct.toUpperCase().replace(/\s*([AP]M)$/i, " $1");
+  const parsed = Date.parse(text);
+  if (!Number.isFinite(parsed)) return "";
+  return new Intl.DateTimeFormat("en-US", { hour: "2-digit", minute: "2-digit", hour12: true }).format(parsed);
+}
+
+function normalizeEngagementCount(value) {
+  const text = String(value ?? "").trim();
+  if (!text || text === "0") return "—";
+  const match = text.match(/(?:\d[\d,.]*\s*[KMB]?)/i);
+  return match ? match[0].replace(/\s+/g, "") : text.slice(0, 8);
+}
+
+function updateDraftCharCount() {
+  if (!elements.draftCharCount) return;
+  const count = Array.from(String(elements.messageEditor?.value || "")).length;
+  elements.draftCharCount.textContent = `${count} chars`;
+}
+
+function resolveContextAvatarUrl(profile, mode) {
+  const candidates = mode === "comments"
+    ? [
+        profile?.parentPostAvatarUrl,
+        profile?.postAuthorAvatarUrl,
+        profile?.avatarUrl,
+        profile?.profileImageUrl,
+        profile?.imageUrl,
+        profile?.photoUrl
+      ]
+    : [
+        profile?.avatarUrl,
+        profile?.profileImageUrl,
+        profile?.imageUrl,
+        profile?.photoUrl,
+        profile?.pictureUrl
+      ];
+  for (const candidate of candidates) {
+    const value = String(candidate || "").trim();
+    if (/^(?:https?:|data:image\/)/i.test(value)) return value;
+  }
+  return "";
 }
 
 function resolveContextDisplayName(profile, mode) {
@@ -1074,7 +1302,7 @@ async function generateMessage({ source }) {
   const token = ++state.generationToken;
   const previousMessage = source === "refresh" ? state.draft.trim() : "";
   setLoading(true);
-  setStatus("busy", `Writing a fresh ${state.length} ${state.tone} ${state.mode === "comments" ? "comment" : state.mode === "conversation" ? "reply" : "message"}…`);
+  setStatus("busy", `Writing a fresh ${state.length} ${selectedToneLabel().toLowerCase()} ${state.mode === "comments" ? "comment" : state.mode === "conversation" ? "reply" : "message"}…`);
 
   try {
     const response = await chrome.runtime.sendMessage({
@@ -1154,6 +1382,7 @@ function setLoading(loading) {
 function renderDraft() {
   elements.messageEditor.value = state.draft || "";
   elements.messageEditor.placeholder = modeLabels().placeholder;
+  updateDraftCharCount();
   updateCopyState();
 }
 
@@ -1312,10 +1541,13 @@ async function sendToLinkedInTab(tabId, message) {
     if (!response && /_V2$/.test(String(message?.type || ""))) throw new Error("[E-RPL-07] Conversation Capture V2 is not installed in this tab yet.");
     return response;
   } catch (_) {
-    try {
-      await chrome.scripting.insertCSS({ target: { tabId }, files: ["src/backend/content/linkedin-content.css"] });
-    } catch (_) {}
-    await chrome.scripting.executeScript({ target: { tabId }, files: ["src/backend/content/linkedin-content.js"] });
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: [
+        "src/backend/content/linkedin-content-styles.js",
+        "src/backend/content/linkedin-content.js"
+      ]
+    });
     await new Promise((resolve) => setTimeout(resolve, 120));
     try {
       return await chrome.tabs.sendMessage(tabId, message);

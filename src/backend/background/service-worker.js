@@ -1,6 +1,5 @@
 import { OFFICIAL_API_KEYS } from "../config/official-api-keys.js";
-
-const CONTENT_SCRIPT_VERSION = "1.4.90";
+const CONTENT_SCRIPT_VERSION = "1.5.14-thread15";
 
 let embeddedEnvPromise = null;
 
@@ -248,9 +247,9 @@ let openRouterFreeModelCache = { expiresAt: 0, models: [] };
 const PROJECT_SELECTION_HISTORY_KEY = "projectSelectionHistory";
 const PROJECT_SELECTION_RECENT_LIMIT = 120;
 const WORD_RANGES = Object.freeze({
-  short: Object.freeze({ min: 12, max: 20 }),
-  medium: Object.freeze({ min: 24, max: 40 }),
-  long: Object.freeze({ min: 50, max: 90 })
+  short: Object.freeze({ min: 15, max: 20 }),
+  medium: Object.freeze({ min: 30, max: 40 }),
+  long: Object.freeze({ min: 60, max: 200 })
 });
 
 chrome.runtime.onInstalled.addListener(async () => {
@@ -905,10 +904,13 @@ async function ensureContentScript(tabId) {
     if (ping?.ok && ping.version === CONTENT_SCRIPT_VERSION) return;
   } catch (_) {}
 
-  try {
-    await chrome.scripting.insertCSS({ target: { tabId }, files: ["src/backend/content/linkedin-content.css"] });
-  } catch (_) {}
-  await chrome.scripting.executeScript({ target: { tabId }, files: ["src/backend/content/linkedin-content.js"] });
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    files: [
+      "src/backend/content/linkedin-content-styles.js",
+      "src/backend/content/linkedin-content.js"
+    ]
+  });
   await new Promise((resolve) => setTimeout(resolve, 120));
 }
 
@@ -1808,6 +1810,15 @@ async function generateOutreach(payload) {
         resumeProfileName: String(payload.resumeProfileName || "").trim(),
         projectMatch
       });
+  const providerMessages = [
+    {
+      role: "system",
+      content: isAutopilot
+        ? "Write one concise, truthful LinkedIn outreach DM. Return only the message. Never invent facts. Obey the inclusive word range and finish every sentence."
+        : "You are IceBreaker, a professional LinkedIn writing assistant. Follow the selected mode instructions exactly. Return only the final text the user can copy. Never return JSON, analysis, labels, or explanations. Never invent facts. Obey the inclusive word range and never stop in the middle of a sentence."
+    },
+    { role: "user", content: prompt }
+  ];
 
   let raw = "";
   let fallbackUsed = false;
@@ -1815,15 +1826,7 @@ async function generateOutreach(payload) {
   try {
     raw = await callProvider(
       settings,
-      [
-        {
-          role: "system",
-          content: isAutopilot
-            ? "Write one concise, truthful LinkedIn outreach DM. Return only the message. Never invent facts."
-            : "You are IceBreaker, a professional LinkedIn writing assistant. Follow the selected mode instructions exactly. Return only the final text the user can copy. Never return JSON, analysis, labels, or explanations. Never invent facts."
-        },
-        { role: "user", content: prompt }
-      ],
+      providerMessages,
       {
         signal: payload.signal,
         onProgress: payload.onProgress,
@@ -1852,11 +1855,41 @@ async function generateOutreach(payload) {
   if (!message) throw new Error("The selected AI model returned an empty draft. Press Refresh and try again.");
 
   const range = getSelectedWordRange(length);
-  // One request only. Previous builds often made a second full request because
-  // the prompt and validator used conflicting word ranges.
-  message = enforceMaximumWordCount(message, range.max);
-  if (countWords(message) < 4) {
-    throw new Error("The selected AI model returned an unusably short draft. Press Refresh or choose another model.");
+  const initialConstraintIssue = generatedDraftConstraintIssue(message, range);
+  if (initialConstraintIssue && !fallbackUsed) {
+    await payload.onProgress?.("Polishing the draft to the selected length and completing the final sentence…");
+    const repairedRaw = await callProvider(
+      settings,
+      [
+        ...providerMessages,
+        { role: "assistant", content: message },
+        {
+          role: "user",
+          content: buildDraftRepairInstruction({ mode, tone, range, issue: initialConstraintIssue })
+        }
+      ],
+      {
+        signal: payload.signal,
+        onProgress: payload.onProgress,
+        responseMode: "text",
+        maxOutputTokens: outputTokenBudget(length),
+        source: payload.source || "manual",
+        compactInput: isAutopilot
+      }
+    );
+    const repairedMessage = cleanGeneratedDraft(extractPlainDraft(repairedRaw), mode);
+    if (repairedMessage) message = repairedMessage;
+  }
+
+  // A provider can still overshoot after the repair pass. Keep only a complete
+  // sentence prefix that remains inside the selected range; never slice at an
+  // arbitrary word and append a misleading period.
+  message = enforceMaximumWordCount(message, range.max, range.min);
+  const finalConstraintIssue = generatedDraftConstraintIssue(message, range);
+  if (finalConstraintIssue) {
+    throw new Error(
+      `The selected AI model could not finish a complete ${range.min}-${range.max} word draft (${finalConstraintIssue}). Press Regenerate or choose another model.`
+    );
   }
 
   const labels = {
@@ -1902,8 +1935,8 @@ function buildAutopilotCompactPrompt({ profile, resumeText, settings, tone, leng
     `Sender name: ${sender}`,
     `Target role: ${role}`,
     `Sender skills: ${skills || "software engineering and AI"}`,
-    `Tone: ${sharedTone(tone)}`,
-    "Start with Hi. Mention the attached résumé exactly once. Ask to be considered for a relevant role or directed to the right hiring contact. Use only these facts. Return only the DM."
+    `Tone: ${sharedTone(tone, "dms")}`,
+    "Start with Hi. Mention the attached résumé exactly once. Ask to be considered for a relevant role or directed to the right hiring contact. Use only these facts. Return only the DM. Stay inside the inclusive word range and end with a complete sentence."
   ].join("\n");
 }
 
@@ -1937,7 +1970,7 @@ function buildLocalAutopilotDraft({ profile, resumeText, settings, length, prefe
   }
   if (length === "long") {
     const skillLine = skills ? `My background includes ${skills}. ` : "";
-    return `Hi ${firstName}, I’m reaching out because I’m currently exploring ${role} opportunities and noticed ${context}. ${skillLine}I’ve attached my résumé for context. I’d appreciate being considered for a suitable role, or being directed to the right hiring contact on your team. Thank you for your time.`;
+    return `Hi ${firstName}, I’m reaching out because I’m currently exploring ${role} opportunities and noticed ${context}. ${skillLine}I’ve attached my résumé for context. I’d appreciate being considered for a suitable role, or being directed to the right hiring contact on your team. Your perspective on the team’s current priorities would also help me understand where my experience could contribute most effectively. Thank you for your time.`;
   }
   const skillLine = skills ? `My background includes ${skills}. ` : "";
   return `Hi ${firstName}, I’m exploring ${role} opportunities and noticed ${context}. ${skillLine}I’ve attached my résumé and would appreciate consideration for a suitable role or the right hiring contact.`;
@@ -1955,13 +1988,66 @@ function buildModePrompt(input) {
   return buildOutreachPrompt(input);
 }
 
-function sharedTone(tone) {
-  const tones = {
-    professional: "polished, confident, respectful, and direct",
-    neutral: "natural, balanced, friendly, and professional",
-    engaging: "warm, conversational, memorable, and still workplace-appropriate"
+function sharedTone(tone, mode = "dms") {
+  const selectedTone = String(tone || "neutral").trim().toLowerCase();
+  if (["funny", "humorous", "witty"].includes(selectedTone)) {
+    return "genuinely funny through a sharp, situational observation grounded in the supplied context; warm and workplace-appropriate, with no canned joke, generic banter, meme filler, forced punchline, or invented setup";
+  }
+
+  if (mode === "comments") {
+    const commentTones = {
+      professional: "friendly, warm, approachable, and natural without empty praise",
+      friendly: "friendly, warm, approachable, and natural without empty praise",
+      neutral: "insightful and specific, adding one clear observation without sounding academic or generic",
+      insightful: "insightful and specific, adding one clear observation without sounding academic or generic",
+      engaging: "supportive and encouraging while still responding to a concrete detail",
+      supportive: "supportive and encouraging while still responding to a concrete detail",
+      supportively: "supportive and encouraging while still responding to a concrete detail"
+    };
+    return commentTones[selectedTone] || commentTones.professional;
+  }
+
+  if (mode === "conversation") {
+    const conversationTones = {
+      neutral: "friendly, warm, natural, and easy to respond to while matching the established conversation",
+      friendly: "friendly, warm, natural, and easy to respond to while matching the established conversation",
+      professional: "polished, composed, respectful, and clear while continuing the existing conversation naturally",
+      engaging: "supportive, reassuring, and constructive while responding directly to the latest message",
+      supportive: "supportive, reassuring, and constructive while responding directly to the latest message",
+      supportively: "supportive, reassuring, and constructive while responding directly to the latest message"
+    };
+    return conversationTones[selectedTone] || conversationTones.neutral;
+  }
+
+  const dmTones = {
+    professional: "polished, confident, respectful, and direct without sounding like a sales template",
+    neutral: "casual, natural, and relaxed while remaining thoughtful and specific",
+    casual: "casual, natural, and relaxed while remaining thoughtful and specific",
+    engaging: "warm, curious, specific, and reply-inviting, with a memorable but unforced conversational hook"
   };
-  return tones[tone] || tones.neutral;
+  return dmTones[selectedTone] || dmTones.neutral;
+}
+
+function humorQualityRule() {
+  return "If humor is requested or naturally fits the context, make it genuinely situational and specific to the supplied detail. Never use a canned joke, generic banter, meme phrase, fake familiarity, or a forced punchline.";
+}
+
+function buildDraftRepairInstruction({ mode, tone, range, issue }) {
+  const labels = {
+    dms: "LinkedIn DM",
+    comments: "LinkedIn comment",
+    conversation: "LinkedIn conversation reply"
+  };
+  return [
+    `Rewrite the draft as one ready-to-send ${labels[mode] || labels.dms}.`,
+    `The current draft failed because ${issue}.`,
+    `The rewritten text must contain ${range.min}-${range.max} words inclusive.`,
+    "Preserve the supplied facts and intent, but do not add any new fact, name, promise, date, achievement, or relationship.",
+    `Tone: ${sharedTone(tone, mode)}.`,
+    humorQualityRule(),
+    "Use complete sentences only. Finish the final thought and end with a period, question mark, or exclamation mark.",
+    "Return only the rewritten text—no label, analysis, word count, quotation marks, or alternatives."
+  ].join("\n");
 }
 
 function refreshInstruction(previousMessage) {
@@ -2048,19 +2134,28 @@ ${projectDecision}
 
 SENDER PROFILE
 ${truncate(formatStructuredSenderProfile(settings, preferredRole), 700)}
-Tone: ${sharedTone(tone)}
+Tone: ${sharedTone(tone, "dms")}
 Length: ${ranges[length] || ranges.medium}
 ${refreshInstruction(previousMessage)}
+PRIMARY GOAL
+Start a genuine two-way professional conversation and build a credible connection. The DM must feel written for this recipient, not like a cold template, résumé drop, sales pitch, or immediate transaction.
+
 RULES
 - Return only the final DM and start with "Hi" plus the recipient's first name.
-- Briefly explain the outreach reason using only supplied facts.
-- Mention the attached CV exactly once.
+- Anchor the opening in one concrete, relevant detail from the recipient's profile, matched comment, or related post. Never use vague praise in place of that detail.
+- Connect that detail to one truthful sender goal, interest, skill, or relevant experience so the reason for writing is immediately clear.
+- Give the recipient an easy, context-specific reason to reply. Prefer one natural question about their work, perspective, or the shared topic over a generic request to connect.
+- Keep any role, referral, collaboration, or résumé request secondary to the human conversation; do not make the first line an ask.
+- Mention the attached CV exactly once and briefly, after establishing relevance.
 - Use a matched comment's actual idea when useful; never say only that you saw a comment/activity.
 - Treat a related post as supporting private-DM context, not as a public reply.
 - Mention only the selected project; when PROJECT DECISION says NONE, mention no named project.
 - Never invent a role opening, relationship, achievement, mutual connection, or recipient identity.
+- Avoid canned openings and filler such as “I came across your profile,” “impressive journey,” “would love to connect,” “pick your brain,” or generic compliments that could be sent to anyone.
+- ${humorQualityRule()}
 - No markdown, headings, bullets, subject line, placeholders, analysis, or alternatives in the output.
-- Stay strictly inside the selected word range; short is one sentence, medium one or two sentences, long up to three short paragraphs.
+- Stay strictly inside the selected inclusive word range. Short is one complete sentence; Medium is two or three complete sentences; Long may use up to three short paragraphs.
+- Never sacrifice grammar to hit the word limit. Finish the final thought and end with a period, question mark, or exclamation mark.
 `.trim();
 }
 
@@ -2081,7 +2176,7 @@ Headline: ${truncate(profile.headline || "Not visible", 220)}
 POST
 ${truncate(profile.description || profile.rawText || "", 2800)}
 
-Tone: ${sharedTone(tone)}
+Tone: ${sharedTone(tone, "comments")}
 Length: ${ranges[length] || ranges.medium}
 ${refreshInstruction(previousMessage)}
 RULES
@@ -2089,8 +2184,54 @@ RULES
 - Do not merely summarise the post or use generic praise such as “Great post”.
 - Do not mention a résumé, ask for a job, advertise services, or invent experience.
 - Match the post's language and formality when possible.
+- ${humorQualityRule()}
+- Stay strictly inside the selected inclusive word range and use complete sentences only.
+- Finish the final thought and end with a period, question mark, or exclamation mark; never trail off at the word limit.
 - Return only the comment as plain text. No headings, bullets, hashtags, quotation marks, or markdown.
 `.trim();
+}
+
+function prepareConversationForPrompt(profile) {
+  const compactMessage = (value, maxChars = 560) => {
+    const text = String(value || "").replace(/\s+/g, " ").trim();
+    if (text.length <= maxChars) return text;
+    const headLength = Math.ceil((maxChars - 3) * 0.48);
+    const tailLength = Math.max(1, maxChars - 3 - headLength);
+    return `${text.slice(0, headLength)}...${text.slice(-tailLength)}`;
+  };
+  const preserveNewestTranscript = (value, maxChars = 9000) => {
+    const text = String(value || "").trim();
+    return text.length > maxChars
+      ? `[earlier context truncated]\n${text.slice(-maxChars)}`
+      : text;
+  };
+  const supplied = Array.isArray(profile?.conversationMessages)
+    ? profile.conversationMessages
+        .map((message) => {
+          const direction = message?.direction === "self" ? "self" : message?.direction === "contact" ? "contact" : "unknown";
+          const text = compactMessage(message?.text);
+          return { direction, text };
+        })
+        .filter((message) => message.text)
+        .slice(-15)
+    : [];
+  const transcript = preserveNewestTranscript(supplied.length
+    ? supplied.map((message) => {
+        if (message.direction === "self") return `[YOU]: ${message.text}`;
+        if (message.direction === "contact") return `[CONTACT]: ${message.text}`;
+        return `[UNKNOWN SENDER]: ${message.text}`;
+      }).join("\n\n")
+    : String(profile?.description || profile?.rawText || "").trim());
+  const newest = supplied.at(-1) || null;
+  const latestContact = [...supplied].reverse().find((message) => message.direction === "contact") || null;
+  const latestSelf = [...supplied].reverse().find((message) => message.direction === "self") || null;
+  return {
+    transcript,
+    messageCount: supplied.length || Number(profile?.messageCount || 0),
+    newestDirection: newest?.direction || profile?.latestDirection || "unknown",
+    latestContactText: latestContact?.text || String(profile?.latestContactMessage || "").trim(),
+    latestSelfText: latestSelf?.text || String(profile?.latestSelfMessage || "").trim()
+  };
 }
 
 function buildConversationPrompt({ profile, resumeText, profileContext, settings, tone, length, previousMessage }) {
@@ -2107,6 +2248,7 @@ function buildConversationPrompt({ profile, resumeText, profileContext, settings
   const userContext = combinedUserContext
     ? selectRelevantResumeText(combinedUserContext, profile.description || "", 1100)
     : "No saved résumé or imported profile context is available.";
+  const conversation = prepareConversationForPrompt(profile);
 
   return `
 Write ONE context-aware LinkedIn inbox reply that naturally continues the visible chat.
@@ -2115,25 +2257,31 @@ CONVERSATION WITH
 ${profile.name || "LinkedIn contact"}
 
 CHAT — OLDEST TO NEWEST
-Captured messages: ${Number(profile.messageCount || 0) || "up to 8"}
+Captured messages: ${conversation.messageCount || "up to 15"}
 Newest sender: ${profile.latestSender || "Use the final transcript label"}
-Newest direction: ${profile.latestDirection || "Use [YOU] / [CONTACT]"}
-[YOU] is the extension user's sent text. [CONTACT] is the other person's text.
-${truncate(profile.description || profile.rawText || "", 3000)}
+Newest direction: ${conversation.newestDirection}
+Latest verified contact message: ${truncate(conversation.latestContactText || "Not reliably available", 700)}
+Latest verified user message: ${truncate(conversation.latestSelfText || "Not available", 700)}
+[YOU] is the extension user's sent text. [CONTACT] is the other person's text. These labels are authoritative.
+${conversation.transcript}
 
 USER CONTEXT — only when the chat asks about it
 ${truncate(formatStructuredSenderProfile(settings), 650)}
 ${userContext}
 
-Tone: ${sharedTone(tone)}
+Tone: ${sharedTone(tone, "conversation")}
 Length: ${ranges[length] || ranges.medium}
 ${refreshInstruction(previousMessage)}
 RULES
-- Respond to the contact's latest [CONTACT] message; use earlier messages only for context.
+- Respond to the latest verified [CONTACT] message; use earlier messages only for context.
 - Never answer a [YOU] message as if the contact sent it. If the final entry is [YOU], write only a supported, non-repetitive follow-up.
+- Do not repeat a question, offer, fact, or commitment already stated in a [YOU] message.
 - Preserve the conversation's intent, tone, and language. Do not restart with a cold introduction.
 - Use only supplied facts. Never invent dates, availability, attachments, promises, meetings, or prior discussions.
 - Ask one concise question when essential information is missing.
+- ${humorQualityRule()}
+- Stay strictly inside the selected inclusive word range and use complete sentences only.
+- Finish the final thought and end with a period, question mark, or exclamation mark; never trail off at the word limit.
 - Return only the reply as plain text, in one to three short paragraphs. No headings, labels, bullets, emojis, quotation marks, or markdown.
 `.trim();
 }
@@ -2751,7 +2899,7 @@ async function callOllama(settings, messages, requestOptions = {}) {
         top_p: 0.88,
         repeat_penalty: 1.05,
         num_ctx: 4096,
-        num_predict: clampNumber(requestOptions.maxOutputTokens, 64, 240, 140)
+        num_predict: clampNumber(requestOptions.maxOutputTokens, 96, 1024, 256)
       }
     },
     {
@@ -2842,7 +2990,13 @@ async function fetchOllamaChatStream(url, payload, { signal, onProgress, model }
           await onProgress(`Writing with ${model}…`);
         }
         if (chunk?.message?.content) content += String(chunk.message.content);
-        if (chunk?.done) return content.trim();
+        if (chunk?.done) {
+          const finishReason = String(chunk?.done_reason || chunk?.finish_reason || "stop");
+          if (isLengthFinishReason(finishReason)) {
+            throw new Error(`Ollama stopped at its output limit (finish reason: ${finishReason}).`);
+          }
+          return content.trim();
+        }
       }
     }
 
@@ -2924,10 +3078,10 @@ async function callOpenRouter(settings, messages, requestOptions = {}) {
 
   const candidates = buildOpenRouterCandidates(selectedModel, discoveredFallbacks);
   const outputBudget = clampNumber(
-    Number(requestOptions.maxOutputTokens || 160) * 3,
-    256,
-    640,
-    384
+    Number(requestOptions.maxOutputTokens || 256) * 2,
+    320,
+    1536,
+    512
   );
 
   return withProviderKeyFailover(settings, "openrouter", async (apiKey) => {
@@ -2977,10 +3131,15 @@ async function callOpenRouter(settings, messages, requestOptions = {}) {
         const content = normalizeMessageContent(
           message?.content ?? message?.text ?? choice?.text ?? choice?.delta?.content
         );
-        if (content) return content;
-
         const finishReason = String(choice?.finish_reason || choice?.native_finish_reason || "unknown");
         const routedModel = String(data?.model || candidate.id);
+        if (isLengthFinishReason(finishReason)) {
+          throw new Error(
+            `OpenRouter stopped before the final sentence from ${routedModel} (finish reason: ${finishReason}).`
+          );
+        }
+        if (content) return content;
+
         throw new Error(
           `OpenRouter returned no final text from ${routedModel} (finish reason: ${finishReason}).`
         );
@@ -3145,7 +3304,7 @@ async function callGroq(settings, messages, requestOptions = {}) {
                 model,
                 messages: providerMessages,
                 temperature: 0.35,
-                max_completion_tokens: clampNumber(requestOptions.maxOutputTokens, 48, 220, 120),
+                max_completion_tokens: clampNumber(requestOptions.maxOutputTokens, 96, 1024, 256),
                 ...(/^openai\/gpt-oss/i.test(model)
                   ? { reasoning_effort: "low", reasoning_format: "hidden" }
                   : /^qwen\//i.test(model)
@@ -3162,7 +3321,12 @@ async function callGroq(settings, messages, requestOptions = {}) {
 
           const data = await parseJsonResponse(response, "Groq");
           if (data?.error) throw providerBodyError("Groq", data.error);
-          const content = normalizeMessageContent(data?.choices?.[0]?.message?.content || data?.choices?.[0]?.text);
+          const choice = data?.choices?.[0] || {};
+          const finishReason = String(choice?.finish_reason || choice?.native_finish_reason || "unknown");
+          if (isLengthFinishReason(finishReason)) {
+            throw new Error(`Groq stopped before the final sentence (finish reason: ${finishReason}).`);
+          }
+          const content = normalizeMessageContent(choice?.message?.content || choice?.text);
           if (!content) throw new Error("Groq returned an empty response. Select another model and try again.");
           return content;
         } catch (error) {
@@ -3301,6 +3465,10 @@ function normalizeOpenRouterModel(value) {
   return /^[a-z0-9._-]+\/[a-z0-9._:-]+$/i.test(model) ? model : "openrouter/free";
 }
 
+function isLengthFinishReason(value) {
+  return /^(?:length|max[_ -]?(?:tokens?|output)|token[_ -]?limit)$/i.test(String(value || "").trim());
+}
+
 function normalizeProviderMessages(messages) {
   if (!Array.isArray(messages)) return [];
   return messages
@@ -3319,7 +3487,7 @@ function shouldTryOpenRouterFallback(error) {
 
 function shouldTryProviderModelFallback(error) {
   const detail = String(error?.message || error || "");
-  return /\b(402|403|404|408|409|425|429|500|502|503|504)\b|model.*(?:blocked|permission|not found|unavailable)|credits|payment required|overloaded|capacity|timed? out/i.test(detail);
+  return /\b(402|403|404|408|409|425|429|500|502|503|504)\b|model.*(?:blocked|permission|not found|unavailable)|credits|payment required|overloaded|capacity|timed? out|finish reason:\s*(?:length|max[_ -]?tokens?)|stopped (?:before|at).*output limit/i.test(detail);
 }
 
 function providerBodyError(provider, errorValue) {
@@ -3366,8 +3534,12 @@ function extractPlainDraft(raw) {
 }
 
 function outputTokenBudget(length) {
-  const range = getSelectedWordRange(length);
-  return Math.min(240, Math.max(72, Math.ceil(range.max * 1.8)));
+  const budgets = {
+    short: 160,
+    medium: 256,
+    long: 768
+  };
+  return budgets[length] || budgets.medium;
 }
 
 function normalizeOllamaKeepAlive(value) {
@@ -3676,7 +3848,7 @@ function profileSignature(profile) {
       .split(/\n+/)
       .map((line) => String(line || "").replace(/\s+/g, " ").trim())
       .filter((line) => /^\[(?:YOU|CONTACT)(?:\s*-.*)?\]\s*:/i.test(line))
-      .slice(-8)
+      .slice(-15)
       .join("\n");
     return [
       mode,
@@ -3752,14 +3924,39 @@ function countWords(value) {
   return String(value || "").trim().split(/\s+/).filter(Boolean).length;
 }
 
-function enforceMaximumWordCount(value, maxWords) {
+function hasCompleteSentenceEnding(value) {
   const text = String(value || "").trim();
-  const words = text.split(/\s+/).filter(Boolean);
-  if (words.length <= maxWords) return text;
-  let clipped = words.slice(0, maxWords).join(" ").trim();
-  clipped = clipped.replace(/[,;:\-–—]+$/, "").trim();
-  if (clipped && !/[.!?]$/.test(clipped)) clipped += ".";
-  return clipped;
+  if (/(?:\.{2,}|…)(?:["'”’\)\]]*)$/.test(text)) return false;
+  return /[.!?](?:["'”’\)\]]*)$/.test(text);
+}
+
+function generatedDraftConstraintIssue(value, range) {
+  const text = String(value || "").trim();
+  const wordCount = countWords(text);
+  if (wordCount < range.min) return `it has ${wordCount} words instead of at least ${range.min}`;
+  if (wordCount > range.max) return `it has ${wordCount} words instead of at most ${range.max}`;
+  if (!hasCompleteSentenceEnding(text)) return "its final sentence is unfinished";
+  return "";
+}
+
+function enforceMaximumWordCount(value, maxWords, minWords = 1) {
+  const text = String(value || "").trim();
+  if (countWords(text) <= maxWords) return text;
+
+  let completePrefix = "";
+  const sentenceEnd = /[.!?]+(?:["'”’\)\]]+)?(?=\s|$)/g;
+  for (const match of text.matchAll(sentenceEnd)) {
+    if (/^\.{2,}/.test(match[0])) continue;
+    const candidate = text.slice(0, Number(match.index || 0) + match[0].length).trim();
+    const candidateWords = countWords(candidate);
+    if (candidateWords > maxWords) break;
+    if (candidateWords >= minWords) completePrefix = candidate;
+  }
+
+  // Returning the original text is deliberate when no safe sentence boundary
+  // exists. The caller can repair or reject it instead of displaying a clipped
+  // fragment disguised by an appended full stop.
+  return completePrefix || text;
 }
 
 function cleanGeneratedDraft(value, mode = "dms") {

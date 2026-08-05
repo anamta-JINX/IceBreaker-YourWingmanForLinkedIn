@@ -89,7 +89,8 @@ const pages = [
     app: "src/frontend/sidepanel/sidepanel-app.js",
     globalName: "IceBreakerSidepanel",
     controllers: ["src/frontend/sidepanel/sidepanel.js"],
-    index: "src/frontend/sidepanel/index.html"
+    index: "src/frontend/sidepanel/index.html",
+    styles: "src/frontend/sidepanel/sidepanel-theme.js"
   },
   {
     name: "options",
@@ -100,7 +101,8 @@ const pages = [
       "src/frontend/options/options.js",
       "src/frontend/options/autopilot-settings.js"
     ],
-    index: "src/frontend/options/index.html"
+    index: "src/frontend/options/index.html",
+    styles: "src/frontend/options/options-theme.js"
   }
 ];
 
@@ -139,6 +141,15 @@ for (const page of pages) {
   }
   if (!indexHtml.includes(path.basename(page.app))) {
     architectureErrors.push(`index does not load ${path.basename(page.app)}`);
+  }
+  if (!indexHtml.includes(path.basename(page.styles))) {
+    architectureErrors.push(`index does not load ${path.basename(page.styles)}`);
+  }
+  if (!indexHtml.includes("../vendor/bootstrap.min.css")) {
+    architectureErrors.push("index does not load locally bundled Bootstrap");
+  }
+  if (/https?:\/\//i.test(indexHtml)) {
+    architectureErrors.push("index must not load CDN assets");
   }
   if (!indexHtml.includes("../runtime/react-page-runtime.js")) {
     architectureErrors.push("index does not load the shared React runtime");

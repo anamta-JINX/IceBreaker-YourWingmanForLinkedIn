@@ -1,4 +1,8 @@
-.icebreaker-hover-badge {
+(() => {
+  "use strict";
+
+  const STYLE_ID = "icebreaker-linkedin-content-styles";
+  const CSS_TEXT = String.raw`.icebreaker-hover-badge {
   position: fixed;
   z-index: 2147483647;
   display: flex;
@@ -42,3 +46,18 @@
 .icebreaker-hover-badge.is-visible {
   display: none !important;
 }
+`;
+  const target = document.head || document.documentElement;
+  if (!target) return;
+
+  let style = document.getElementById(STYLE_ID);
+  if (!style) {
+    style = document.createElement("style");
+    style.id = STYLE_ID;
+    style.setAttribute("data-icebreaker-style", "linkedin-content");
+    target.appendChild(style);
+  }
+
+  // Reassign on every load so extension reloads update an already-open page.
+  if (style.textContent !== CSS_TEXT) style.textContent = CSS_TEXT;
+})();

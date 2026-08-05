@@ -1,5 +1,5 @@
 (() => {
-  const CONTENT_SCRIPT_VERSION = '1.4.90';
+  const CONTENT_SCRIPT_VERSION = '1.5.14-thread15';
   if (window.__ICEBREAKER_CONTENT_VERSION__ === CONTENT_SCRIPT_VERSION) return;
 
   // Older IceBreaker builds used a boolean guard, which meant Chrome could
@@ -121,7 +121,7 @@
     '[role="log"]'
   ];
   const MIN_CONVERSATION_MESSAGES = 3;
-  const MAX_CONVERSATION_MESSAGES = 8;
+  const MAX_CONVERSATION_MESSAGES = 15;
 
   const CONVERSATION_DIAGNOSTICS = Object.freeze({
     'E-RPL-01': 'LinkedIn Messaging is not open or no supported messaging surface is visible.',
@@ -196,6 +196,7 @@
   let lastPointerPosition = { x: 0, y: 0, at: 0 };
   let lastConversationTarget = null;
   let panelActive = false;
+  const conversationMessageHistory = new WeakMap();
 
   initialize();
 
@@ -312,10 +313,13 @@
 
   function rememberConversationTarget(target) {
     if (!target || target.type !== 'conversation') return;
-    const row = target.row?.isConnected ? target.row : null;
     const shell = target.threadRoot?.isConnected
       ? findConversationRootFromTarget(target.threadRoot)
       : (target.container?.isConnected ? findConversationRootFromTarget(target.container) : null);
+    const candidateRow = target.row?.isConnected ? target.row : null;
+    const row = candidateRow && (!shell || conversationRowMatchesThread(shell, candidateRow))
+      ? candidateRow
+      : null;
     lastConversationTarget = {
       row,
       shell,
@@ -492,6 +496,25 @@
 
 
   function resolveConversationTarget(target) {
+    // Inbox rows live beside the open thread inside LinkedIn's broad
+    // Messaging <main>. Resolve the exact row first so hovering Sarah's row
+    // cannot be mistaken for hovering the whole page (and therefore Alice's
+    // first/active row).
+    const row = findConversationRow(target);
+    if (row) {
+      const rowText = extractConversationRowPreview(row);
+      if (!rowText) return null;
+      return {
+        type: 'conversation',
+        container: row,
+        row,
+        rowText,
+        threadRoot: null,
+        needsOpen: true,
+        key: conversationRowIdentity(row)
+      };
+    }
+
     const shell = findConversationRootFromTarget(target);
     if (shell) {
       const transcript = extractConversationTranscript(shell);
@@ -506,20 +529,7 @@
         key: conversationShellIdentity(shell)
       };
     }
-
-    const row = findConversationRow(target);
-    if (!row) return null;
-    const rowText = extractConversationRowPreview(row);
-    if (!rowText) return null;
-    return {
-      type: 'conversation',
-      container: row,
-      row,
-      rowText,
-      threadRoot: null,
-      needsOpen: true,
-      key: conversationRowIdentity(row)
-    };
+    return null;
   }
 
 
@@ -799,6 +809,20 @@
 
   async function prepareConversationContext(target, captureToken) {
     if (target.threadRoot && isSafeConversationRootCandidate(target.threadRoot)) {
+      const latestReady = await waitForLatestConversationMessages(target.threadRoot, {
+        captureToken,
+        row: target.row?.isConnected ? target.row : null
+      });
+      if (captureToken !== conversationCaptureToken || generationMode !== 'conversation') return null;
+      if (!latestReady) {
+        target.captureErrorCode = 'E-RPL-08';
+        return null;
+      }
+      await collectLatestConversationMessages(target.threadRoot, {
+        captureToken,
+        row: target.row?.isConnected ? target.row : null
+      });
+      if (captureToken !== conversationCaptureToken || generationMode !== 'conversation') return null;
       const direct = extractConversationContext(target.threadRoot, null);
       if (direct?.description) return direct;
       target.captureErrorCode = 'E-RPL-03';
@@ -825,7 +849,12 @@
     if (captureToken !== conversationCaptureToken || generationMode !== 'conversation') return null;
 
     if (shell) {
-      const fullContext = extractConversationContext(shell, target.row?.isConnected ? target.row : null);
+      const matchedRow = target.row?.isConnected && conversationRowMatchesThread(shell, target.row)
+        ? target.row
+        : null;
+      await collectLatestConversationMessages(shell, { captureToken, row: matchedRow });
+      if (captureToken !== conversationCaptureToken || generationMode !== 'conversation') return null;
+      const fullContext = extractConversationContext(shell, matchedRow);
       if (fullContext?.description) {
         target.threadRoot = shell;
         target.container = shell;
@@ -866,15 +895,34 @@
   }
 
   async function waitForConversationThread({ captureToken, expectedName = '', row = null, previousShells = new Set() }) {
-    for (let attempt = 0; attempt < 42; attempt += 1) {
+    const deadline = Date.now() + 5200;
+    for (let attempt = 0; attempt < 42 && Date.now() < deadline; attempt += 1) {
       if (captureToken !== conversationCaptureToken || generationMode !== 'conversation') return null;
       const shells = visibleConversationOuterShells();
       const matching = expectedName
         ? shells.find((shell) => conversationRootMatchesExpected(shell, expectedName))
         : null;
       const newlyOpened = shells.find((shell) => !previousShells.has(shell));
-      const candidate = matching || newlyOpened || (row?.isConnected && isConversationRowActive(row) && shells.length === 1 ? shells[0] : null);
-      if (candidate && extractConversationTranscript(candidate)) return candidate;
+      const verifiedNewlyOpened = newlyOpened && (!expectedName || conversationRootMatchesExpected(newlyOpened, expectedName))
+        ? newlyOpened
+        : null;
+      const rowSurface = row?.closest?.('main, [role="main"], .msg-overlay-list-bubble, .msg-conversations-container');
+      const surfaceShells = rowSurface
+        ? shells.filter((candidateShell) => rowSurface.contains(candidateShell))
+        : shells;
+      const activeCandidate = row?.isConnected && isConversationRowActive(row) && surfaceShells.length === 1 &&
+        (!expectedName || conversationRootMatchesExpected(surfaceShells[0], expectedName))
+        ? surfaceShells[0]
+        : null;
+      const candidate = matching || verifiedNewlyOpened || activeCandidate;
+      if (candidate && extractConversationTranscript(candidate)) {
+        const latestReady = await waitForLatestConversationMessages(candidate, {
+          captureToken,
+          row,
+          timeoutMs: Math.min(900, Math.max(180, deadline - Date.now()))
+        });
+        if (latestReady) return candidate;
+      }
       await sleep(120);
     }
     return null;
@@ -965,18 +1013,17 @@
 
   function extractUsableConversationContext(shell, row = null) {
     if (!shell || !isSafeConversationRootCandidate(shell)) return null;
-    const matchedRow = row?.isConnected && conversationRootMatchesExpected(shell, conversationParticipantName(null, row))
-      ? row
-      : null;
-    const context = extractConversationContext(shell, matchedRow);
+    const threadScope = conversationThreadIdentityScope(shell) || shell;
+    const matchedRow = row?.isConnected && conversationRowMatchesThread(threadScope, row) ? row : null;
+    const context = extractConversationContext(threadScope, matchedRow);
     if (context?.description) {
-      rememberConversationTarget({ type: 'conversation', threadRoot: shell, container: shell, row: matchedRow });
+      rememberConversationTarget({ type: 'conversation', threadRoot: threadScope, container: threadScope, row: matchedRow });
       return context;
     }
     return null;
   }
 
-  function captureConversationContextNow({ allowPreview = true } = {}) {
+  async function captureConversationContextNow({ allowPreview = true } = {}) {
     const pointerTarget = lastPointerElement?.isConnected ? lastPointerElement : null;
     const focusedTarget = document.activeElement?.isConnected ? document.activeElement : null;
     const remembered = recentConversationTarget();
@@ -991,10 +1038,16 @@
       : (remembered?.row?.isConnected ? remembered.row : findActiveConversationRow());
     const expectedName = conversationParticipantName(null, selectedRow) || remembered?.expectedName || '';
     const shell = pointerShell || focusedShell || currentShell || rememberedShell;
+    let directShellLatestReady = null;
 
     if (shell) {
-      const context = extractUsableConversationContext(shell, selectedRow);
-      if (context?.description) return context;
+      const shellRow = selectedRow?.isConnected && conversationRowMatchesThread(shell, selectedRow) ? selectedRow : null;
+      directShellLatestReady = await waitForLatestConversationMessages(shell, { row: shellRow });
+      if (directShellLatestReady) {
+        await collectLatestConversationMessages(shell, { row: shellRow });
+        const context = extractUsableConversationContext(shell, selectedRow);
+        if (context?.description) return context;
+      }
     }
 
     const visibleShells = visibleConversationOuterShells();
@@ -1006,8 +1059,19 @@
       expectedName
     });
     if (visibleShell) {
-      const context = extractUsableConversationContext(visibleShell, selectedRow);
-      if (context?.description) return context;
+      const visibleRow = selectedRow?.isConnected && conversationRowMatchesThread(visibleShell, selectedRow) ? selectedRow : null;
+      const latestReady = visibleShell === shell && directShellLatestReady !== null
+        ? directShellLatestReady
+        : await waitForLatestConversationMessages(visibleShell, { row: visibleRow });
+      if (latestReady) {
+        await collectLatestConversationMessages(visibleShell, { row: visibleRow });
+        const context = extractUsableConversationContext(visibleShell, selectedRow);
+        if (context?.description) return context;
+      }
+      if (allowPreview && selectedRow) {
+        const preview = extractConversationPreviewContext(selectedRow);
+        if (preview?.description) return { ...preview, diagnosticCode: 'E-RPL-10', previewOnly: true };
+      }
       throw conversationCaptureError('E-RPL-03');
     }
 
@@ -1157,6 +1221,61 @@
     return lines.find((line) => line.length >= 4 && line.length <= 300 && normalizeMatchValue(line) !== normalizeMatchValue(name)) || inferHeadline(rawText, name);
   }
 
+  function normalizeAvatarUrl(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    if (/^data:image\//i.test(raw)) return raw.length > 180 ? raw : '';
+    if (/^blob:/i.test(raw)) return '';
+    try {
+      const resolved = new URL(raw, location.href);
+      if (!/^https?:$/i.test(resolved.protocol)) return '';
+      return resolved.href;
+    } catch (_) {
+      return '';
+    }
+  }
+
+  function imageSourceFromElement(image) {
+    if (!image) return '';
+    const candidates = [
+      image.getAttribute?.('data-delayed-url'),
+      image.getAttribute?.('data-src'),
+      image.getAttribute?.('data-lazy-src'),
+      image.currentSrc,
+      image.getAttribute?.('src'),
+      image.src
+    ];
+    for (const candidate of candidates) {
+      const normalized = normalizeAvatarUrl(candidate);
+      if (normalized) return normalized;
+    }
+    return '';
+  }
+
+  function extractAvatarUrl(scope, preferredNode = null) {
+    const avatarSelectors = [
+      'img.presence-entity__image',
+      'img[class*="EntityPhoto"]',
+      'img[class*="profile" i]',
+      'img[alt*="profile" i]',
+      'img[alt*="photo" i]',
+      'img[alt*="avatar" i]'
+    ];
+    const roots = [...new Set([preferredNode, scope].filter(Boolean))];
+    for (const root of roots) {
+      const directImage = root?.matches?.('img') ? root : null;
+      const directSource = imageSourceFromElement(directImage);
+      if (directSource) return directSource;
+      const selectors = root === preferredNode ? [...avatarSelectors, 'img[alt]'] : avatarSelectors;
+      for (const selector of selectors) {
+        const image = root?.querySelector?.(selector);
+        const source = imageSourceFromElement(image);
+        if (source) return source;
+      }
+    }
+    return '';
+  }
+
   function extractProfileFromCard(link, card) {
     const rawText = clean(card.innerText || card.textContent || '').slice(0, 5000);
     const url = normalizeLinkedInUrl(link.href || link.getAttribute('href') || '');
@@ -1181,6 +1300,7 @@
     return {
       mode: 'dms',
       name: normalizeName(name),
+      avatarUrl: extractAvatarUrl(card, link),
       headline: clean(headline),
       company: inferCompany(headline),
       location: clean(locationText),
@@ -1218,6 +1338,7 @@
     return {
       mode: 'dms',
       name: normalizeName(name),
+      avatarUrl: extractAvatarUrl(topCard),
       headline: clean(headline),
       company: inferCompany(headline),
       location: clean(locationText),
@@ -1316,6 +1437,44 @@
     return visible ? extractPostContext(visible) : null;
   }
 
+  function extractCompactCount(value) {
+    const text = clean(value || '');
+    if (!text) return '';
+    const match = text.match(/(?:\d[\d,.]*\s*[KMB]?)/i);
+    return match ? match[0].replace(/\s+/g, '') : '';
+  }
+
+  function extractPostAge(post) {
+    const source = firstText(post, [
+      '.update-components-actor__sub-description span[aria-hidden="true"]',
+      '.feed-shared-actor__sub-description span[aria-hidden="true"]',
+      '.update-components-actor__sub-description',
+      '.feed-shared-actor__sub-description',
+      '[data-view-name="feed-actor"] time',
+      'time'
+    ]);
+    const match = clean(source).match(/(?:^|\s)(now|\d+\s*(?:s|m|h|d|w|mo|y|yr)s?)(?=\s|[•·]|$)/i);
+    return match ? match[1].replace(/\s+/g, '') : '';
+  }
+
+  function extractPostEngagement(post) {
+    const reactionSource = firstText(post, [
+      '.social-details-social-counts__reactions-count',
+      'button[aria-label*="reaction" i]',
+      '[data-view-name="feed-social-counts"] button[aria-label*="reaction" i]',
+      '[data-view-name="feed-social-counts"] span'
+    ]);
+    const commentSource = firstText(post, [
+      '.social-details-social-counts__comments',
+      'button[aria-label*="comment" i]',
+      '[data-view-name="feed-social-counts"] button[aria-label*="comment" i]'
+    ]);
+    return {
+      reactionCount: extractCompactCount(reactionSource),
+      commentCount: extractCompactCount(commentSource)
+    };
+  }
+
   function extractPostContext(post) {
     const rawInnerText = String(post?.innerText || post?.textContent || '');
     const rawText = clean(rawInnerText).slice(0, 7000);
@@ -1332,6 +1491,8 @@
       '[data-anonymize="headline"]'
     ]) || textActor.headline;
     const body = extractPostBody(post);
+    const postAge = extractPostAge(post);
+    const { reactionCount, commentCount } = extractPostEngagement(post);
     const permalink = post.querySelector('a[href*="/feed/update/"], a[href*="/posts/"], a[href*="activity-"]');
 
     const profileUrl = normalizeLinkedInUrl(authorLink?.href || '');
@@ -1347,6 +1508,7 @@
       mode: 'comments',
       name: author || 'LinkedIn post',
       authorName: author,
+      avatarUrl: extractAvatarUrl(post, authorLink),
       contentType: 'post',
       headline: clean(headline) || 'Post author',
       company: inferCompany(headline),
@@ -1355,6 +1517,9 @@
       userId,
       description: body.slice(0, 3500),
       rawText,
+      postAge,
+      reactionCount,
+      commentCount,
       url: normalizeLinkedInUrl(permalink?.href || authorLink?.href || location.href),
       source: 'post-hover'
     };
@@ -1606,6 +1771,7 @@
         mode: 'dms',
         name,
         authorName: name,
+        avatarUrl: base.avatarUrl || commentContext?.avatarUrl || '',
         headline,
         company: inferCompany(headline) || base.company || '',
         profileDescription,
@@ -1647,6 +1813,7 @@
         mode: 'dms',
         name,
         authorName: name,
+        avatarUrl: base.avatarUrl || postContext?.avatarUrl || '',
         headline,
         company: inferCompany(headline) || base.company || '',
         profileDescription,
@@ -1695,6 +1862,8 @@
       mode: 'comments',
       name: author || 'Comment author',
       authorName: author,
+      avatarUrl: extractAvatarUrl(comment, authorLink),
+      parentPostAvatarUrl: postContext?.avatarUrl || '',
       contentType: 'comment',
       headline: clean(headline) || 'Comment author',
       company: inferCompany(headline),
@@ -1707,7 +1876,11 @@
       parentPostAuthor: postContext?.authorName || postContext?.name || '',
       parentPostHeadline: postContext?.headline || '',
       parentPostProfileUrl: postContext?.profileUrl || '',
+      parentPostUrl: postContext?.url || '',
       parentPostText: postContext?.description || '',
+      parentPostAge: postContext?.postAge || '',
+      parentPostReactionCount: postContext?.reactionCount || '',
+      parentPostCommentCount: postContext?.commentCount || '',
       url: normalizeLinkedInUrl(authorLink?.href || location.href),
       source: 'comment-hover'
     };
@@ -1826,6 +1999,11 @@
     const element = target?.nodeType === Node.ELEMENT_NODE ? target : target?.parentElement;
     if (!element?.closest) return null;
 
+    // A conversation row may share an ancestor with the visible thread, but
+    // it is not part of that thread. Returning the shared ancestor here loses
+    // the identity of the row actually under the pointer.
+    if (findConversationRow(element)) return null;
+
     // Start at the exact hovered/focused element instead of requiring the
     // pointer to be over a bubble or composer. LinkedIn users commonly hover a
     // conversation header, blank thread space, attachment, or timestamp.
@@ -1836,13 +2014,34 @@
 
   function findConversationOuterShell(element) {
     if (!element?.closest) return null;
-    let best = null;
+    const candidates = [];
     let node = element;
     for (let depth = 0; node && depth < 14; depth += 1, node = node.parentElement) {
       if (node === document.body || node === document.documentElement) break;
-      if (isSafeConversationRootCandidate(node)) best = node;
+      if (isSafeConversationRootCandidate(node)) {
+        candidates.push({ node, depth, evidence: conversationRootEvidence(node) });
+      }
     }
-    return best;
+    if (!candidates.length) return null;
+
+    // Prefer the nearest real thread wrapper. The old behavior deliberately
+    // returned the outermost safe ancestor, which could be LinkedIn's entire
+    // Messaging main (inbox list + thread) and leak the first inbox identity.
+    const explicit = candidates.find((candidate) => candidate.evidence.explicitShell);
+    if (explicit) return explicit.node;
+
+    const complete = candidates.find((candidate) =>
+      !candidate.evidence.isMessagingMain &&
+      candidate.evidence.hasList &&
+      candidate.evidence.hasMessages &&
+      (candidate.evidence.hasComposer || candidate.evidence.hasHeader)
+    );
+    if (complete) return complete.node;
+
+    const dialog = candidates.find((candidate) => candidate.evidence.isDialog);
+    if (dialog) return dialog.node;
+    const messagingMain = candidates.find((candidate) => candidate.evidence.isMessagingMain);
+    return messagingMain?.node || candidates[0].node;
   }
 
 
@@ -1851,9 +2050,12 @@
     const add = (candidate) => {
       const shell = findConversationOuterShell(candidate) || candidate;
       if (!shell || shells.includes(shell) || !isSafeConversationRootCandidate(shell) || !isVisible(shell)) return;
-      if (shells.some((existing) => existing.contains(shell))) return;
+      // Keep the narrow thread wrapper when a later scan encounters its broad
+      // Messaging main ancestor. If the narrow wrapper arrives later, replace
+      // the broad ancestor with it.
+      if (shells.some((existing) => shell.contains(existing))) return;
       for (let index = shells.length - 1; index >= 0; index -= 1) {
-        if (shell.contains(shells[index])) shells.splice(index, 1);
+        if (shells[index].contains(shell)) shells.splice(index, 1);
       }
       shells.push(shell);
     };
@@ -1958,10 +2160,8 @@
   function conversationRootMatchesExpected(root, expectedName = '') {
     const expected = canonicalPersonName(expectedName);
     if (!root || !expected) return true;
-    const actualName = conversationParticipantName(root, null);
+    const actualName = conversationThreadParticipantName(root);
     if (actualName && namesLikelyMatch(actualName, expectedName)) return true;
-    const ariaName = extractConversationNameFromAria(root);
-    if (ariaName && namesLikelyMatch(ariaName, expectedName)) return true;
     return false;
   }
 
@@ -1995,7 +2195,148 @@
     return messages
       .map(formatConversationMessage)
       .join('\n\n')
-      .slice(-9000);
+      .slice(-12000);
+  }
+
+  function conversationMessageScrollContainer(root) {
+    if (!root?.querySelectorAll) return null;
+    const listSelector = CONVERSATION_MESSAGE_LIST_SELECTORS.join(',');
+    const candidates = [];
+    const add = (element) => {
+      if (!element || candidates.includes(element) || !isVisible(element)) return;
+      candidates.push(element);
+    };
+    if (root.matches?.(listSelector)) add(root);
+    root.querySelectorAll(listSelector).forEach((list) => {
+      add(list);
+      let ancestor = list.parentElement;
+      for (let depth = 0; ancestor && ancestor !== root && depth < 4; depth += 1, ancestor = ancestor.parentElement) {
+        add(ancestor);
+      }
+    });
+    add(root);
+    return candidates.sort((left, right) => {
+      const leftScrollable = Math.max(0, Number(left.scrollHeight || 0) - Number(left.clientHeight || 0));
+      const rightScrollable = Math.max(0, Number(right.scrollHeight || 0) - Number(right.clientHeight || 0));
+      return rightScrollable - leftScrollable;
+    })[0] || null;
+  }
+
+  function scrollConversationToLatest(root) {
+    const scroller = conversationMessageScrollContainer(root);
+    if (!scroller) return { scroller: null, atBottom: true };
+    const maxScrollTop = Math.max(0, Number(scroller.scrollHeight || 0) - Number(scroller.clientHeight || 0));
+    if (maxScrollTop > 2 && Math.abs(Number(scroller.scrollTop || 0) - maxScrollTop) > 2) {
+      try {
+        scroller.scrollTop = scroller.scrollHeight;
+        scroller.dispatchEvent(new Event('scroll', { bubbles: true }));
+      } catch (_) {}
+    }
+    const remaining = Math.max(0, Number(scroller.scrollHeight || 0) - Number(scroller.clientHeight || 0) - Number(scroller.scrollTop || 0));
+    return { scroller, atBottom: remaining <= 4 };
+  }
+
+  function conversationLatestFingerprint(messages) {
+    return messages
+      .slice(-4)
+      .map((message) => `${message.direction}|${normalizeMessageIdentity(message.text)}`)
+      .join('||');
+  }
+
+  async function waitForLatestConversationMessages(root, { captureToken = null, row = null, timeoutMs = 1100 } = {}) {
+    if (!root || !isSafeConversationRootCandidate(root)) return false;
+    const previewText = cleanConversationText(
+      extractConversationRowSnippet(row).replace(/^(?:you|me)\s*[:·-]\s*/i, '')
+    );
+    const startedAt = Date.now();
+    let previousFingerprint = '';
+    let stableSamples = 0;
+    let latestMessages = [];
+
+    while (Date.now() - startedAt <= timeoutMs) {
+      if (
+        captureToken !== null &&
+        (captureToken !== conversationCaptureToken || generationMode !== 'conversation')
+      ) return false;
+
+      const { atBottom } = scrollConversationToLatest(root);
+      await sleep(70);
+      latestMessages = extractVisibleConversationMessages(root, row);
+      if (!latestMessages.length) continue;
+
+      const fingerprint = conversationLatestFingerprint(latestMessages);
+      stableSamples = fingerprint && fingerprint === previousFingerprint ? stableSamples + 1 : 1;
+      previousFingerprint = fingerprint;
+      const newestMatchesPreview = !previewText || messagesMatchPreview(latestMessages.at(-1)?.text, previewText);
+
+      // Two identical bottom-of-thread samples avoid capturing LinkedIn while
+      // it is swapping the old virtualized message window for the newly opened
+      // conversation. When an inbox preview exists, it must match the newest
+      // bubble before the full transcript is accepted.
+      if (atBottom && newestMatchesPreview && stableSamples >= 2) return true;
+    }
+
+    // A thread opened directly from its header may have no inbox preview. In
+    // that case a stable, non-empty bottom sample is sufficient. With a row
+    // preview, fail closed so an older/middle window never replaces the newest
+    // message context.
+    return Boolean(!previewText && latestMessages.length && stableSamples >= 2);
+  }
+
+  async function collectLatestConversationMessages(root, { captureToken = null, row = null, limit = MAX_CONVERSATION_MESSAGES, timeoutMs = 2800 } = {}) {
+    if (!root || !isSafeConversationRootCandidate(root)) return [];
+    root = conversationThreadIdentityScope(root) || root;
+    const scroller = conversationMessageScrollContainer(root);
+    const startedAt = Date.now();
+    const cancelled = () => captureToken !== null && (captureToken !== conversationCaptureToken || generationMode !== 'conversation');
+
+    scrollConversationToLatest(root);
+    await sleep(90);
+    if (cancelled()) return [];
+
+    let history = extractVisibleConversationMessages(root, row);
+    let noProgressRounds = 0;
+    let previousCount = history.length;
+    let previousTop = Number(scroller?.scrollTop || 0);
+
+    while (scroller && history.length < limit && Date.now() - startedAt < timeoutMs && noProgressRounds < 3) {
+      if (cancelled()) return [];
+      const beforeTop = Number(scroller.scrollTop || 0);
+      const beforeHeight = Number(scroller.scrollHeight || 0);
+      const step = Math.max(280, Math.floor(Number(scroller.clientHeight || 0) * 0.82));
+      const nextTop = Math.max(0, beforeTop - step);
+
+      try {
+        scroller.scrollTop = nextTop;
+        scroller.dispatchEvent(new Event('scroll', { bubbles: true }));
+      } catch (_) {
+        break;
+      }
+
+      await sleep(150);
+      if (cancelled()) return [];
+
+      const olderWindow = extractVisibleConversationMessages(root, row);
+      history = mergeConversationMessageWindows(olderWindow, history);
+
+      const currentTop = Number(scroller.scrollTop || 0);
+      const currentHeight = Number(scroller.scrollHeight || 0);
+      const progressed = history.length > previousCount || currentTop < previousTop - 2 || currentHeight > beforeHeight + 2;
+      noProgressRounds = progressed ? 0 : noProgressRounds + 1;
+      previousCount = history.length;
+      previousTop = currentTop;
+
+      if (currentTop <= 2 && currentHeight <= beforeHeight + 2 && !progressed) break;
+    }
+
+    scrollConversationToLatest(root);
+    await sleep(120);
+    if (cancelled()) return [];
+
+    const latestWindow = extractVisibleConversationMessages(root, row);
+    history = mergeConversationMessageWindows(history, latestWindow);
+    replaceConversationMessageHistory(root, history, row);
+    return history.slice(-limit);
   }
 
   function formatConversationMessage({ sender, direction, text }) {
@@ -2004,20 +2345,23 @@
     return `[UNKNOWN SENDER]: ${text}`;
   }
 
-  function extractRecentConversationMessages(root, row = null) {
+  function extractVisibleConversationMessages(root, row = null) {
     const messageNodes = getConversationMessageNodes(root);
     const records = [];
     const groupDirections = new Map();
-    const contactName = conversationParticipantName(root, row) || 'Contact';
+    const matchedRow = row?.isConnected && conversationRowMatchesThread(root, row) ? row : null;
+    const contactName = conversationParticipantName(root, matchedRow) || 'Contact';
 
     for (const node of messageNodes) {
       const text = extractMessageText(node);
-      if (!text) continue;
+      if (!text || !isLikelyConversationMessageText(text)) continue;
 
-      const group = findMessageGroup(node);
+      const group = findMessageGroup(node) || closestMessageEvent(node);
       const senderInfo = extractMessageSender(node, root, contactName);
       let direction = senderInfo.direction;
       let sender = senderInfo.sender;
+      let directionConfidence = senderInfo.confidence;
+      let directionSource = senderInfo.source;
 
       // Consecutive bubbles inside the same LinkedIn message group often omit
       // the author label after the first bubble.
@@ -2025,27 +2369,110 @@
         const known = groupDirections.get(group);
         direction = known.direction;
         sender = known.sender;
+        directionConfidence = Math.max(70, Number(known.confidence || 0) - 5);
+        directionSource = 'same-message-group';
       }
 
-      if (direction !== 'unknown' && group) groupDirections.set(group, { direction, sender });
+      if (direction !== 'unknown' && group) {
+        groupDirections.set(group, { direction, sender, confidence: directionConfidence, source: directionSource });
+      }
       records.push({
         sender,
         direction,
+        directionConfidence,
+        directionSource,
         text,
+        timestamp: extractConversationMessageTimestamp(node),
         node,
         group,
         layout: getMessageLayoutMetrics(node, root),
-        contactMarker: hasContactIdentityMarker(node, contactName)
+        selfMarker: hasCurrentUserIdentityMarker(closestMessageEvent(node) || node),
+        contactMarker: hasContactIdentityMarker(closestMessageEvent(node) || node, contactName)
       });
     }
 
     const uniqueRecords = dedupeConversationRecords(records);
-    resolveUnknownConversationDirections(uniqueRecords, root, row, contactName);
+    resolveUnknownConversationDirections(uniqueRecords, root, matchedRow, contactName);
 
     const resolved = uniqueRecords
-      .map(({ sender, direction, text }) => ({ sender, direction, text }))
-      .slice(-MAX_CONVERSATION_MESSAGES);
+      .map(({ sender, direction, directionConfidence, directionSource, text, timestamp }) => ({
+        sender,
+        direction,
+        directionConfidence: Math.max(0, Math.min(100, Number(directionConfidence || 0))),
+        directionSource: directionSource || 'unresolved',
+        text,
+        timestamp
+      }));
     return resolved.length ? resolved : extractConversationTextFallback(root, row, contactName);
+  }
+
+  function conversationMessagesEquivalent(left, right) {
+    if (!left || !right) return false;
+    if (normalizeMessageIdentity(left.text) !== normalizeMessageIdentity(right.text)) return false;
+    const leftDirection = String(left.direction || 'unknown');
+    const rightDirection = String(right.direction || 'unknown');
+    if (leftDirection !== 'unknown' && rightDirection !== 'unknown' && leftDirection !== rightDirection) return false;
+    const leftTimestamp = clean(left.timestamp || '');
+    const rightTimestamp = clean(right.timestamp || '');
+    return !leftTimestamp || !rightTimestamp || leftTimestamp === rightTimestamp;
+  }
+
+  function mergeConversationMessageWindows(olderWindow, newerWindow, maxMessages = 60) {
+    const older = Array.isArray(olderWindow) ? olderWindow.filter((message) => cleanConversationText(message?.text || '')) : [];
+    const newer = Array.isArray(newerWindow) ? newerWindow.filter((message) => cleanConversationText(message?.text || '')) : [];
+    if (!older.length) return newer.slice(-maxMessages);
+    if (!newer.length) return older.slice(-maxMessages);
+
+    let overlap = 0;
+    const maxOverlap = Math.min(older.length, newer.length);
+    for (let size = maxOverlap; size > 0; size -= 1) {
+      let matches = true;
+      for (let index = 0; index < size; index += 1) {
+        if (!conversationMessagesEquivalent(older[older.length - size + index], newer[index])) {
+          matches = false;
+          break;
+        }
+      }
+      if (matches) {
+        overlap = size;
+        break;
+      }
+    }
+
+    return [...older, ...newer.slice(overlap)].slice(-maxMessages);
+  }
+
+  function conversationMessageHistoryIdentity(root, row = null) {
+    let threadPath = '';
+    try {
+      threadPath = new URL(conversationUrl(row) || location.href, location.origin).pathname.toLowerCase();
+    } catch (_) {}
+    const participant = canonicalPersonName(conversationParticipantName(root, row) || '');
+    return [conversationShellIdentity(root), threadPath, participant].filter(Boolean).join('|');
+  }
+
+  function storeConversationMessageHistory(root, messages, row = null) {
+    if (!root || !Array.isArray(messages) || !messages.length) return [];
+    const identity = conversationMessageHistoryIdentity(root, row);
+    const stored = conversationMessageHistory.get(root);
+    const cached = stored?.identity === identity && Array.isArray(stored.messages) ? stored.messages : [];
+    const merged = mergeConversationMessageWindows(cached, messages);
+    conversationMessageHistory.set(root, { identity, messages: merged });
+    return merged;
+  }
+
+  function replaceConversationMessageHistory(root, messages, row = null) {
+    if (!root || !Array.isArray(messages) || !messages.length) return [];
+    const identity = conversationMessageHistoryIdentity(root, row);
+    const recent = messages.slice(-60);
+    conversationMessageHistory.set(root, { identity, messages: recent });
+    return recent;
+  }
+
+  function extractRecentConversationMessages(root, row = null) {
+    const visible = extractVisibleConversationMessages(root, row);
+    const history = storeConversationMessageHistory(root, visible, row);
+    return (history.length ? history : visible).slice(-MAX_CONVERSATION_MESSAGES);
   }
 
   function extractConversationTextFallback(root, row, contactName = 'Contact') {
@@ -2069,24 +2496,34 @@
     const recent = unique.slice(-MAX_CONVERSATION_MESSAGES);
     if (!recent.length) return [];
 
-    const previewDirection = conversationRowLatestDirection(row);
+    const previewEvidence = conversationRowLatestDirectionEvidence(row);
     return recent.map((line, index) => {
       let direction = 'unknown';
+      let directionConfidence = 0;
+      let directionSource = 'text-fallback-unresolved';
       let text = line;
       if (/^(?:you|me)\s*[:·-]\s*/i.test(line)) {
         direction = 'self';
+        directionConfidence = 92;
+        directionSource = 'text-you-prefix';
         text = line.replace(/^(?:you|me)\s*[:·-]\s*/i, '');
       } else if (contactName && new RegExp(`^${escapeRegExp(contactName)}\\s*[:·-]\\s*`, 'i').test(line)) {
         direction = 'contact';
+        directionConfidence = 92;
+        directionSource = 'text-contact-prefix';
         text = line.replace(new RegExp(`^${escapeRegExp(contactName)}\\s*[:·-]\\s*`, 'i'), '');
-      } else if (index === recent.length - 1 && previewDirection !== 'unknown') {
-        direction = previewDirection;
+      } else if (index === recent.length - 1 && previewEvidence.direction !== 'unknown') {
+        direction = previewEvidence.direction;
+        directionConfidence = previewEvidence.confidence;
+        directionSource = previewEvidence.source;
       }
-      if (direction === 'unknown') direction = index === recent.length - 1 ? 'contact' : 'unknown';
       return {
         sender: direction === 'self' ? 'You' : (direction === 'contact' ? contactName : 'Unknown'),
         direction,
-        text: cleanConversationText(text)
+        directionConfidence,
+        directionSource,
+        text: cleanConversationText(text),
+        timestamp: ''
       };
     }).filter((message) => message.text);
   }
@@ -2111,25 +2548,57 @@
       // Keep the record with stronger sender evidence and the more specific node.
       const existingKnown = existing.direction !== 'unknown';
       const recordKnown = record.direction !== 'unknown';
+      const existingConfidence = Number(existing.directionConfidence || 0);
+      const recordConfidence = Number(record.directionConfidence || 0);
       const existingContainsRecord = existing.node?.contains?.(record.node);
-      if ((!existingKnown && recordKnown) || (existingContainsRecord && !record.node?.contains?.(existing.node))) {
+      if (
+        (!existingKnown && recordKnown) ||
+        recordConfidence > existingConfidence ||
+        (recordConfidence === existingConfidence && existingContainsRecord && !record.node?.contains?.(existing.node))
+      ) {
         unique[duplicateIndex] = record;
       }
     }
     return unique;
   }
 
+  function closestConversationMessageBody(node) {
+    if (!node?.closest) return null;
+    const structural = node.closest([
+      '.msg-s-event-listitem__body',
+      '.msg-s-message-list__message-bubble',
+      '.msg-s-event-listitem__message-bubble',
+      '.msg-s-event-listitem__message-bubble--msg-fwd-enabled',
+      '.msg-s-message-group__message',
+      '.msg-s-message-group__messages > li',
+      '[data-message-id]',
+      '[data-message-urn]',
+      '[data-view-name="message-body"]',
+      '[data-view-name*="message-body"]',
+      '[data-view-name*="message-bubble"]',
+      '[data-testid*="message-bubble" i]',
+      '[data-testid*="message-body" i]',
+      '[class*="message-bubble"]',
+      '[class*="messageBubble"]'
+    ].join(','));
+    if (structural) return structural;
+    return node.matches?.('p, [dir="ltr"]') ? node : null;
+  }
+
   function nodesRepresentSameRenderedMessage(a, b) {
     if (!a || !b) return false;
     if (a === b || a.contains?.(b) || b.contains?.(a)) return true;
 
+    const aBody = closestConversationMessageBody(a);
+    const bBody = closestConversationMessageBody(b);
+    const distinctBodies = Boolean(aBody && bBody && aBody !== bBody && !aBody.contains?.(bBody) && !bBody.contains?.(aBody));
     const aEvent = closestMessageEvent(a);
     const bEvent = closestMessageEvent(b);
-    if (aEvent && bEvent && aEvent === bEvent) return true;
+    if (aEvent && bEvent && aEvent === bEvent && !distinctBodies) return true;
 
     const aId = messageNodeIdentity(aEvent || a);
     const bId = messageNodeIdentity(bEvent || b);
-    if (aId && bId && aId === bId) return true;
+    if (aId && bId && aId === bId && !distinctBodies) return true;
 
     const ar = a.getBoundingClientRect?.();
     const br = b.getBoundingClientRect?.();
@@ -2150,13 +2619,43 @@
       '[data-view-name*="message-list-item"]',
       '[data-view-name*="message-event"]',
       '[data-view-name*="conversation-message"]',
-      '[data-testid*="message-bubble" i]',
-      '[data-testid*="message-body" i]',
-      '[class*="event-listitem"]',
+      '[data-testid*="message-event" i]',
+      '[class*="event-listitem"]:not([class*="__body"]):not([class*="bubble"])',
       '[class*="message-list__event"]',
-      '[class*="messageBubble"]',
       '[role="article"][aria-label*="message" i]'
     ].join(',')) || null;
+  }
+
+  function extractConversationMessageTimestamp(node) {
+    const event = closestMessageEvent(node);
+    const group = findMessageGroup(node);
+    const scopes = [...new Set([node, event, group].filter(Boolean))];
+    const values = [];
+    for (const scope of scopes) {
+      const candidates = [scope, ...scope.querySelectorAll?.('time, [datetime], [data-timestamp], [data-time], [aria-label*=" AM" i], [aria-label*=" PM" i]') || []];
+      for (const candidate of candidates) {
+        values.push(
+          candidate.getAttribute?.('datetime'),
+          candidate.getAttribute?.('data-timestamp'),
+          candidate.getAttribute?.('data-time'),
+          candidate.getAttribute?.('aria-label'),
+          candidate.getAttribute?.('title'),
+          candidate.tagName === 'TIME' ? candidate.textContent : ''
+        );
+      }
+    }
+
+    for (const rawValue of values) {
+      const value = clean(rawValue || '');
+      if (!value) continue;
+      const direct = value.match(/\b(?:[01]?\d|2[0-3]):[0-5]\d(?:\s*[AP]M)?\b/i)?.[0];
+      if (direct) return direct.toUpperCase().replace(/\s*([AP]M)$/i, ' $1');
+      const parsed = Date.parse(value);
+      if (Number.isFinite(parsed) && /\d{4}-\d{2}-\d{2}|T\d{2}:\d{2}/.test(value)) {
+        return new Intl.DateTimeFormat('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }).format(parsed);
+      }
+    }
+    return '';
   }
 
   function messageNodeIdentity(node) {
@@ -2176,34 +2675,54 @@
   function resolveUnknownConversationDirections(records, root, row, contactName) {
     if (!records.length) return;
 
-    // Learn what each visual lane means from any explicit LinkedIn sender marker.
-    const laneDirections = new Map();
+    // Identity inside the exact message event outranks every visual heuristic.
+    // This is important for LinkedIn layouts that place both participants on
+    // the same side or wrap a bubble in a full-width flex-start container.
     for (const record of records) {
-      if (record.direction !== 'unknown' && record.layout?.lane && record.layout.lane !== 'center') {
-        laneDirections.set(record.layout.lane, record.direction);
+      if (record.selfMarker && !record.contactMarker) {
+        setResolvedDirection(record, 'self', contactName, 96, 'current-user-identity');
+      } else if (record.contactMarker && !record.selfMarker) {
+        setResolvedDirection(record, 'contact', contactName, 94, 'contact-identity');
       }
     }
 
+    // Propagate explicit evidence to additional bubbles inside the same sender
+    // group. LinkedIn commonly omits the avatar/name after the first bubble.
+    const groupEvidence = new Map();
     for (const record of records) {
-      if (record.direction !== 'unknown') continue;
-      const learned = laneDirections.get(record.layout?.lane);
-      if (learned) setResolvedDirection(record, learned, contactName);
+      if (!record.group || record.direction === 'unknown') continue;
+      const current = groupEvidence.get(record.group);
+      if (!current || recordDirectionConfidence(record) > current.confidence) {
+        groupEvidence.set(record.group, {
+          direction: record.direction,
+          confidence: recordDirectionConfidence(record)
+        });
+      }
     }
-
-    // A profile link/avatar inside a message event is strong evidence that the
-    // event belongs to the other participant.
     for (const record of records) {
-      if (record.direction === 'unknown' && record.contactMarker) {
-        setResolvedDirection(record, 'contact', contactName);
-        if (record.layout?.lane && record.layout.lane !== 'center') laneDirections.set(record.layout.lane, 'contact');
+      const known = record.group && groupEvidence.get(record.group);
+      if (known) {
+        setResolvedDirection(record, known.direction, contactName, Math.max(70, known.confidence - 5), 'same-message-group');
       }
     }
 
-    // Re-apply the learned lane after discovering contact-avatar evidence.
+    // Learn a lane only when reliable messages in that lane agree. If both the
+    // user and contact appear in the same visual lane, the lane is ambiguous
+    // and must never be used to relabel messages.
+    const laneEvidence = new Map();
     for (const record of records) {
-      if (record.direction !== 'unknown') continue;
-      const learned = laneDirections.get(record.layout?.lane);
-      if (learned) setResolvedDirection(record, learned, contactName);
+      const lane = record.layout?.lane;
+      if (recordDirectionConfidence(record) < 80 || !lane || lane === 'center') continue;
+      if (!laneEvidence.has(lane)) laneEvidence.set(lane, new Map());
+      const directions = laneEvidence.get(lane);
+      directions.set(record.direction, Math.max(Number(directions.get(record.direction) || 0), recordDirectionConfidence(record)));
+    }
+    for (const record of records) {
+      if (recordDirectionConfidence(record) >= 70) continue;
+      const directions = laneEvidence.get(record.layout?.lane);
+      if (!directions || directions.size !== 1) continue;
+      const [direction, confidence] = directions.entries().next().value;
+      setResolvedDirection(record, direction, contactName, Math.min(78, confidence - 10), 'verified-visual-lane');
     }
 
     const positioned = records.filter((record) => Number.isFinite(record.layout?.centerRatio));
@@ -2213,11 +2732,17 @@
       const max = Math.max(...ratios);
       // LinkedIn may omit every sender class, but incoming and outgoing bubbles
       // still occupy two separate horizontal lanes.
-      if (max - min >= 0.075) {
+      if (max - min >= 0.12) {
         const split = (min + max) / 2;
         for (const record of positioned) {
-          if (record.direction !== 'unknown') continue;
-          setResolvedDirection(record, record.layout.centerRatio > split ? 'self' : 'contact', contactName);
+          if (recordDirectionConfidence(record) >= 55) continue;
+          setResolvedDirection(
+            record,
+            record.layout.centerRatio > split ? 'self' : 'contact',
+            contactName,
+            52,
+            'two-lane-geometry'
+          );
         }
       }
     }
@@ -2226,8 +2751,8 @@
     // current LinkedIn UI where the outer event is full width but an inner
     // message body uses margin-left:auto / flex-end.
     for (const record of records) {
-      if (record.direction === 'unknown' && record.layout?.direction !== 'unknown') {
-        setResolvedDirection(record, record.layout.direction, contactName);
+      if (recordDirectionConfidence(record) < 48 && record.layout?.direction !== 'unknown') {
+        setResolvedDirection(record, record.layout.direction, contactName, 46, 'bubble-alignment');
       }
     }
 
@@ -2235,27 +2760,25 @@
     // sender metadata. When its snippet matches the newest bubble, it is stronger
     // evidence than lane geometry because compact LinkedIn layouts can align both
     // participants to the same side.
-    const previewDirection = conversationRowLatestDirection(row);
+    const previewEvidence = conversationRowLatestDirectionEvidence(row);
     const previewText = cleanConversationText(extractConversationRowSnippet(row).replace(/^(?:you|me)\s*[:·-]\s*/i, ''));
     const newest = records.at(-1);
-    const previewMatchesNewest = Boolean(
-      newest?.text && previewText &&
-      normalizeMessageIdentity(newest.text) === normalizeMessageIdentity(previewText)
-    );
-    if (newest && previewDirection !== 'unknown' && (newest.direction === 'unknown' || previewMatchesNewest)) {
-      setResolvedDirection(newest, previewDirection, contactName);
+    const previewMatchesNewest = messagesMatchPreview(newest?.text, previewText);
+    if (
+      newest &&
+      previewEvidence.direction !== 'unknown' &&
+      (newest.direction === 'unknown' || (previewMatchesNewest && previewEvidence.confidence > recordDirectionConfidence(newest)))
+    ) {
+      setResolvedDirection(
+        newest,
+        previewEvidence.direction,
+        contactName,
+        previewEvidence.confidence,
+        previewEvidence.source
+      );
     }
 
-    // Propagate within the same LinkedIn message group after all stronger
-    // evidence has been applied.
-    const groupKnown = new Map();
-    for (const record of records) {
-      if (record.group && record.direction !== 'unknown') groupKnown.set(record.group, record.direction);
-    }
-    for (const record of records) {
-      const known = record.group && groupKnown.get(record.group);
-      if (record.direction === 'unknown' && known) setResolvedDirection(record, known, contactName);
-    }
+    propagateBetweenMatchingDirectionAnchors(records, contactName);
 
     // Last-resort centre-based classification. A one-to-one LinkedIn thread has
     // only two participants; right-of-centre is the user, left-of-centre is the
@@ -2263,27 +2786,87 @@
     for (const record of records) {
       if (record.direction !== 'unknown') continue;
       const ratio = record.layout?.centerRatio;
-      if (Number.isFinite(ratio) && ratio >= 0.53) setResolvedDirection(record, 'self', contactName);
-      else setResolvedDirection(record, 'contact', contactName);
+      if (Number.isFinite(ratio) && ratio >= 0.55) {
+        setResolvedDirection(record, 'self', contactName, 28, 'center-position-fallback');
+      } else if (Number.isFinite(ratio) && ratio <= 0.45) {
+        setResolvedDirection(record, 'contact', contactName, 28, 'center-position-fallback');
+      }
     }
   }
 
-  function setResolvedDirection(record, direction, contactName) {
+  function recordDirectionConfidence(record) {
+    return Math.max(0, Math.min(100, Number(record?.directionConfidence || 0)));
+  }
+
+  function setResolvedDirection(record, direction, contactName, confidence = 50, source = 'inferred') {
+    if (!record || !['self', 'contact'].includes(direction)) return false;
+    const nextConfidence = Math.max(0, Math.min(100, Number(confidence || 0)));
+    const currentConfidence = recordDirectionConfidence(record);
+    if (record.direction !== 'unknown' && currentConfidence > nextConfidence) return false;
+    if (record.direction === direction && currentConfidence >= nextConfidence) return false;
     record.direction = direction;
     record.sender = direction === 'self' ? 'You' : (contactName || 'Contact');
+    record.directionConfidence = nextConfidence;
+    record.directionSource = source;
+    return true;
+  }
+
+  function messagesMatchPreview(messageText, previewText) {
+    const message = normalizeMessageIdentity(messageText || '');
+    const preview = normalizeMessageIdentity(previewText || '');
+    if (!message || !preview) return false;
+    if (message === preview) return true;
+    const shortest = Math.min(message.length, preview.length);
+    return shortest >= 12 && (message.endsWith(preview) || preview.endsWith(message));
+  }
+
+  function propagateBetweenMatchingDirectionAnchors(records, contactName) {
+    for (let index = 0; index < records.length; index += 1) {
+      const record = records[index];
+      if (record.direction !== 'unknown') continue;
+      let previous = null;
+      let next = null;
+      for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+        if (recordDirectionConfidence(records[cursor]) >= 80) {
+          previous = records[cursor];
+          break;
+        }
+      }
+      for (let cursor = index + 1; cursor < records.length; cursor += 1) {
+        if (recordDirectionConfidence(records[cursor]) >= 80) {
+          next = records[cursor];
+          break;
+        }
+      }
+      if (previous && next && previous.direction === next.direction) {
+        setResolvedDirection(record, previous.direction, contactName, 66, 'matching-sender-anchors');
+      }
+    }
   }
 
   function conversationRowLatestDirection(row) {
-    if (!row) return 'unknown';
+    return conversationRowLatestDirectionEvidence(row).direction;
+  }
+
+  function conversationRowLatestDirectionEvidence(row) {
+    if (!row) return { direction: 'unknown', confidence: 0, source: 'no-inbox-row' };
     const snippet = extractConversationRowSnippet(row);
-    const metadata = clean([
-      snippet,
+    const structuralMetadata = clean([
       row.getAttribute?.('aria-label'),
       row.getAttribute?.('title'),
-      row.innerText || row.textContent || ''
+      row.getAttribute?.('data-view-name'),
+      row.getAttribute?.('data-testid'),
+      row.getAttribute?.('data-control-name')
     ].filter(Boolean).join(' '));
-    if (/^(?:you|me)\s*[:·-]/i.test(snippet) || /(?:^|\b)(?:you sent|sent by you|your message)(?:\b|$)/i.test(metadata)) return 'self';
-    return snippet ? 'contact' : 'unknown';
+    if (/^(?:you|me)\s*[:·-]/i.test(snippet) || /(?:^|\b)(?:you sent|sent by you|message from you|your message)(?:\b|$)/i.test(structuralMetadata)) {
+      return { direction: 'self', confidence: 92, source: 'inbox-you-marker' };
+    }
+    if (/(?:^|\b)(?:received message|message from (?!you\b)|sent to you|replied to you)(?:\b|$)/i.test(structuralMetadata)) {
+      return { direction: 'contact', confidence: 88, source: 'inbox-contact-marker' };
+    }
+    return snippet
+      ? { direction: 'contact', confidence: 22, source: 'inbox-unprefixed-preview' }
+      : { direction: 'unknown', confidence: 0, source: 'no-inbox-preview' };
   }
 
   function findActiveConversationRow() {
@@ -2342,10 +2925,17 @@
       nodes.push(node);
     };
 
-    if (root.matches?.(bodySelectors.join(',')) || root.matches?.(containerSelector)) addNode(root);
+    if (root.matches?.(bodySelectors.join(','))) addNode(root);
+    else if (root.matches?.(containerSelector)) addNode(root);
 
-    for (const body of root.querySelectorAll(bodySelectors.join(','))) {
-      addNode(body.closest(containerSelector) || body);
+    const bodyCandidates = [...root.querySelectorAll(bodySelectors.join(','))];
+    for (const body of bodyCandidates) {
+      // Keep each rendered bubble/body as its own record. LinkedIn frequently
+      // nests several consecutive messages under one event/group container.
+      // Skip only broad wrappers that contain more specific message bodies.
+      const containsSpecificBody = bodyCandidates.some((candidate) => candidate !== body && body.contains(candidate));
+      if (containsSpecificBody && body.matches('.msg-s-event-listitem__body, [data-view-name*="conversation-message"], [role="article"][aria-label*="message" i]')) continue;
+      addNode(body);
     }
 
     if (!nodes.length) {
@@ -2433,6 +3023,12 @@
   }
 
   function extractMessageText(node) {
+    const exactBody = closestConversationMessageBody(node);
+    if (exactBody === node) {
+      const exactText = cleanConversationText(node.innerText || node.textContent || '');
+      if (exactText) return exactText.slice(0, 2400);
+    }
+
     const directBodies = [...node.querySelectorAll([
       '.msg-s-event-listitem__body',
       '.msg-s-message-list__message-bubble',
@@ -2493,16 +3089,6 @@
       '[data-testid*="outgoing-message" i]'
     ].join(',');
 
-    const explicitSelf = scopes.some((scope) => scope.matches?.(selfSelector) || scope.closest?.(selfSelector) || scope.querySelector?.(selfSelector));
-    const metadataText = collectMessageMetadata(scopes);
-    const className = scopes.map((scope) => String(scope.className || '')).join(' ');
-
-    if (explicitSelf ||
-        /from-me|outgoing|(?:^|[-_\s])self(?:$|[-_\s])|message--me|is-own|own-message|sent-message|message-from-me|event-listitem--me/i.test(className) ||
-        /(?:^|\b)(?:you sent|sent by you|message from you|outgoing message|your message)(?:\b|$)/i.test(metadataText)) {
-      return { sender: 'You', direction: 'self' };
-    }
-
     const contactSelector = [
       '[data-sender-type="OTHER"]',
       '[data-sender-type="other"]',
@@ -2514,11 +3100,23 @@
       '[data-view-name*="incoming-message"]',
       '[data-testid*="incoming-message" i]'
     ].join(',');
+
+    const explicitSelf = scopes.some((scope) => scope.matches?.(selfSelector) || scope.closest?.(selfSelector) || scope.querySelector?.(selfSelector));
     const explicitContact = scopes.some((scope) => scope.matches?.(contactSelector) || scope.closest?.(contactSelector) || scope.querySelector?.(contactSelector));
-    if (explicitContact ||
-        /from-them|incoming|received|message--other|is-other|received-message|message-from-them|event-listitem--other/i.test(className) ||
-        /(?:^|\b)(?:incoming message|received message|message from contact|sent to you)(?:\b|$)/i.test(metadataText)) {
-      return { sender: contactName || 'Contact', direction: 'contact' };
+    const metadataText = collectMessageMetadata(scopes);
+    const className = scopes.map((scope) => String(scope.className || '')).join(' ');
+    const selfEvidence = explicitSelf ||
+      /from-me|outgoing|(?:^|[-_\s])self(?:$|[-_\s])|message--me|is-own|own-message|sent-message|message-from-me|event-listitem--me/i.test(className) ||
+      /(?:^|\b)(?:you sent|sent by you|message from you|outgoing message|your message)(?:\b|$)/i.test(metadataText);
+    const contactEvidence = explicitContact ||
+      /from-them|incoming|received|message--other|is-other|received-message|message-from-them|event-listitem--other/i.test(className) ||
+      /(?:^|\b)(?:incoming message|received message|message from contact|sent to you)(?:\b|$)/i.test(metadataText);
+
+    if (selfEvidence && !contactEvidence) {
+      return conversationSenderResolution('self', 'You', 100, 'explicit-outgoing-marker');
+    }
+    if (contactEvidence && !selfEvidence) {
+      return conversationSenderResolution('contact', contactName || 'Contact', 100, 'explicit-incoming-marker');
     }
 
     const sender = cleanPersonLabel(firstText(group, [
@@ -2544,35 +3142,41 @@
     ], ['alt', 'aria-label']));
 
     if (/^you$/i.test(sender) || isCurrentUserName(sender)) {
-      return { sender: 'You', direction: 'self' };
+      return conversationSenderResolution('self', 'You', 98, 'sender-name-is-current-user');
     }
 
     if (sender && (!contactName || namesLikelyMatch(sender, contactName))) {
-      return { sender: contactName || sender, direction: 'contact' };
+      return conversationSenderResolution('contact', contactName || sender, 98, 'sender-name-is-contact');
     }
 
     const metadataSender = metadataText.match(/(?:message\s+from|sent\s+by|from)\s+([\p{L}\p{N} .'-]{2,80})/iu)?.[1] || '';
     if (metadataSender) {
       if (isCurrentUserName(metadataSender) || /^(?:you|me)$/i.test(cleanPersonLabel(metadataSender))) {
-        return { sender: 'You', direction: 'self' };
+        return conversationSenderResolution('self', 'You', 96, 'metadata-sender-is-current-user');
       }
-      return { sender: contactName || cleanPersonLabel(metadataSender) || 'Contact', direction: 'contact' };
+      const cleanedSender = cleanPersonLabel(metadataSender);
+      if (!contactName || namesLikelyMatch(cleanedSender, contactName)) {
+        return conversationSenderResolution('contact', contactName || cleanedSender || 'Contact', 94, 'metadata-sender-is-contact');
+      }
     }
 
+    if (hasCurrentUserIdentityMarker(event, contactName)) {
+      return conversationSenderResolution('self', 'You', 94, 'current-user-avatar-or-profile');
+    }
     if (hasContactIdentityMarker(event, contactName)) {
-      return { sender: contactName || sender || 'Contact', direction: 'contact' };
+      return conversationSenderResolution('contact', contactName || sender || 'Contact', 92, 'contact-avatar-or-profile');
     }
 
-    const layoutDirection = inferMessageDirectionFromLayout(node, root);
-    if (layoutDirection === 'self') return { sender: 'You', direction: 'self' };
-    if (layoutDirection === 'contact') return { sender: contactName || sender || 'Contact', direction: 'contact' };
+    return conversationSenderResolution('unknown', sender || 'Unknown', 0, selfEvidence && contactEvidence ? 'conflicting-sender-markers' : 'no-sender-marker');
+  }
 
-    if (/from-them|incoming|received|message--other|is-other|received-message|message-from-them|event-listitem--other/i.test(className) ||
-        /(?:^|\b)(?:received message|message from|sent you)(?:\b|$)/i.test(metadataText)) {
-      return { sender: contactName || sender || 'Contact', direction: 'contact' };
-    }
-
-    return { sender: sender || 'Unknown', direction: 'unknown' };
+  function conversationSenderResolution(direction, sender, confidence, source) {
+    return {
+      sender,
+      direction,
+      confidence: Math.max(0, Math.min(100, Number(confidence || 0))),
+      source
+    };
   }
 
   function collectMessageMetadata(scopes) {
@@ -2608,6 +3212,34 @@
     return '';
   }
 
+  function hasCurrentUserIdentityMarker(node) {
+    if (!node?.querySelectorAll) return false;
+    const currentProfilePath = detectCurrentLinkedInUserProfilePath();
+    const markers = [
+      ...node.querySelectorAll([
+        '.msg-s-message-list__profile-link',
+        '.msg-s-message-group__profile-link',
+        '.msg-s-event-listitem__link',
+        '[data-view-name*="sender"]',
+        '[data-view-name*="author"]',
+        '[data-anonymize="person-name"]',
+        'img[alt]',
+        'a[href*="/in/"]'
+      ].join(','))
+    ];
+    for (const marker of markers) {
+      const value = cleanPersonLabel(marker.innerText || marker.textContent || marker.getAttribute?.('alt') || marker.getAttribute?.('aria-label') || '');
+      if (/^(?:you|me)$/i.test(value) || (value && isCurrentUserName(value))) return true;
+      const href = normalizeLinkedInUrl(marker.getAttribute?.('href') || marker.href || '');
+      if (currentProfilePath && href) {
+        try {
+          if (new URL(href).pathname.replace(/\/+$/, '').toLowerCase() === currentProfilePath) return true;
+        } catch (_) {}
+      }
+    }
+    return false;
+  }
+
   function hasContactIdentityMarker(node, contactName = '') {
     if (!node?.querySelectorAll) return false;
     const contact = canonicalPersonName(contactName);
@@ -2618,7 +3250,10 @@
       const value = cleanPersonLabel(marker.innerText || marker.textContent || marker.getAttribute?.('alt') || marker.getAttribute?.('aria-label') || '');
       if (value && isCurrentUserName(value)) return false;
       if (contact && value && namesLikelyMatch(value, contactName)) return true;
-      if (marker.matches?.('a[href*="/in/"]') && !isCurrentUserName(value)) return true;
+      if (
+        marker.matches?.('.msg-s-message-list__profile-link, .msg-s-message-group__profile-link, .msg-s-event-listitem__link') &&
+        !isCurrentUserName(value)
+      ) return true;
     }
     return false;
   }
@@ -2635,6 +3270,7 @@
 
   function cleanPersonLabel(value) {
     return normalizeName(value)
+      .replace(/[’']s\b/gi, '')
       .replace(/\b(?:profile photo|photo|avatar|profile picture|online|active now)\b/gi, '')
       .replace(/^(?:view|open)\s+/i, '')
       .replace(/\s+/g, ' ')
@@ -2646,7 +3282,8 @@
   }
 
   function getMessageLayoutMetrics(node, root) {
-    const thread = root || node?.closest?.([
+    const localMessageList = node?.closest?.(CONVERSATION_MESSAGE_LIST_SELECTORS.join(','));
+    const thread = localMessageList || root || node?.closest?.([
       '.msg-s-message-list',
       '.msg-s-message-list__scrollable',
       '.msg-thread',
@@ -2689,10 +3326,11 @@
     if (!candidates.length) addCandidate(node);
 
     let best = null;
+    const directionBoundary = closestMessageEvent(node) || findMessageGroup(node) || thread;
     for (const candidate of candidates) {
       const rect = candidate.getBoundingClientRect();
       const widthRatio = rect.width / threadRect.width;
-      const cssDirection = readCssDirectionSignal(candidate, thread);
+      const cssDirection = readCssDirectionSignal(candidate, directionBoundary);
       const centerRatio = (rect.left + rect.width / 2 - threadRect.left) / threadRect.width;
       const edgeDifference = Math.abs((rect.left - threadRect.left) - (threadRect.right - rect.right));
       const score = (cssDirection !== 'unknown' ? 500 : 0) +
@@ -2724,6 +3362,9 @@
     for (let depth = 0; current && depth < 6; depth += 1, current = current.parentElement) {
       const style = getComputedStyle(current);
       const parentStyle = current.parentElement ? getComputedStyle(current.parentElement) : null;
+      const currentRect = current.getBoundingClientRect?.();
+      const parentRect = current.parentElement?.getBoundingClientRect?.();
+      const laneSized = Boolean(currentRect?.width && parentRect?.width && currentRect.width < parentRect.width * .94);
       const marginLeftAuto = style.marginLeft === 'auto';
       const marginRightAuto = style.marginRight === 'auto';
       const align = String(style.alignSelf || '').toLowerCase();
@@ -2732,10 +3373,10 @@
 
       if (marginLeftAuto && !marginRightAuto) return 'self';
       if (marginRightAuto && !marginLeftAuto) return 'contact';
-      if (/flex-end|\bend\b|right/.test(align) || floatValue === 'right') return 'self';
-      if (/flex-start|\bstart\b|left/.test(align) || floatValue === 'left') return 'contact';
-      if (/flex-end|\bend\b|right/.test(parentJustify)) return 'self';
-      if (/flex-start|\bstart\b|left/.test(parentJustify) && parentStyle?.display?.includes('flex')) return 'contact';
+      if ((/flex-end|\bend\b|right/.test(align) && laneSized) || floatValue === 'right') return 'self';
+      if ((/flex-start|\bstart\b|left/.test(align) && laneSized) || floatValue === 'left') return 'contact';
+      if (/flex-end|\bend\b|right/.test(parentJustify) && laneSized) return 'self';
+      if (/flex-start|\bstart\b|left/.test(parentJustify) && parentStyle?.display?.includes('flex') && laneSized) return 'contact';
       if (current === stopAt) break;
     }
     return 'unknown';
@@ -2772,6 +3413,11 @@
       'img.global-nav__me-photo[alt]',
       '.global-nav__me img[alt]',
       'button[aria-label*="Me"] img[alt]',
+      '[data-view-name*="nav-profile"] img[alt]',
+      '[data-testid*="nav-me" i] img[alt]',
+      'a[href*="/in/me"] img[alt]',
+      'a[data-control-name*="identity"] img[alt]',
+      'button[aria-label*="profile" i] img[alt]',
       '[data-control-name="identity_welcome_message"] [data-anonymize="person-name"]',
       '.feed-identity-module__actor-meta [data-anonymize="person-name"]'
     ];
@@ -2783,23 +3429,49 @@
     return '';
   }
 
+  function detectCurrentLinkedInUserProfilePath() {
+    const selectors = [
+      '.global-nav__me a[href*="/in/"]',
+      'a[data-control-name*="identity"][href*="/in/"]',
+      '[data-view-name*="nav-profile"] a[href*="/in/"]',
+      'a[href*="/in/me"]'
+    ];
+    for (const selector of selectors) {
+      const element = document.querySelector(selector);
+      const href = element?.href || element?.getAttribute?.('href') || '';
+      if (!href) continue;
+      try {
+        const pathname = new URL(href, location.origin).pathname.replace(/\/+$/, '').toLowerCase();
+        if (/^\/in\/[^/]+$/i.test(pathname)) return pathname;
+      } catch (_) {}
+    }
+    return '';
+  }
+
   function extractConversationContext(rootOverride = null, rowOverride = null) {
     if (!isMessagingSurface()) return null;
-    const root = rootOverride;
+    const root = conversationThreadIdentityScope(rootOverride) || rootOverride;
     if (!root || !isSafeConversationRootCandidate(root)) return null;
-    const activeRow = rowOverride?.isConnected ? rowOverride : null;
+    const activeRow = rowOverride?.isConnected && conversationRowMatchesThread(root, rowOverride)
+      ? rowOverride
+      : null;
 
     const messages = extractRecentConversationMessages(root, activeRow);
     if (!messages.length) return null;
     const transcript = messages
       .map(formatConversationMessage)
       .join('\n\n')
-      .slice(-9000);
+      .slice(-12000);
     const messageCount = messages.length;
 
     const participant = conversationParticipantDetails(root, activeRow);
     const name = participant.name || 'LinkedIn contact';
     const newest = messages.at(-1) || { sender: 'Contact', text: '' };
+    if (newest.direction === 'unknown' || Number(newest.directionConfidence || 0) < 28) {
+      throw conversationCaptureError('E-RPL-05');
+    }
+    const latestContact = [...messages].reverse().find((message) => message.direction === 'contact') || null;
+    const latestSelf = [...messages].reverse().find((message) => message.direction === 'self') || null;
     const lastMessage = newest.text;
 
     return {
@@ -2807,6 +3479,7 @@
       name,
       contactName: name,
       participantName: name,
+      avatarUrl: participant.avatarUrl || '',
       headline: lastMessage.slice(0, 240) || 'Latest visible LinkedIn message',
       role: participant.role,
       company: participant.company,
@@ -2816,6 +3489,13 @@
       latestMessage: lastMessage.slice(0, 500),
       latestSender: newest.sender,
       latestDirection: newest.direction,
+      latestDirectionConfidence: Number(newest.directionConfidence || 0),
+      latestContactMessage: String(latestContact?.text || '').slice(0, 700),
+      latestSelfMessage: String(latestSelf?.text || '').slice(0, 700),
+      selfMessageCount: messages.filter((message) => message.direction === 'self').length,
+      contactMessageCount: messages.filter((message) => message.direction === 'contact').length,
+      unknownDirectionCount: messages.filter((message) => message.direction === 'unknown').length,
+      conversationMessages: messages,
       description: transcript,
       rawText: transcript,
       messageCount,
@@ -2843,6 +3523,7 @@
       name,
       contactName: name,
       participantName: name,
+      avatarUrl: participant.avatarUrl || '',
       headline: snippet.slice(0, 240) || 'Visible conversation preview',
       role: participant.role,
       company: participant.company,
@@ -2852,6 +3533,20 @@
       latestMessage: snippet.slice(0, 500),
       latestSender: sentByUser ? 'You' : name,
       latestDirection: sentByUser ? 'self' : 'contact',
+      conversationMessages: [{
+        sender: sentByUser ? 'You' : name,
+        direction: sentByUser ? 'self' : 'contact',
+        directionConfidence: sentByUser ? 92 : 22,
+        directionSource: sentByUser ? 'inbox-you-marker' : 'inbox-unprefixed-preview',
+        text: snippet.slice(0, 500),
+        timestamp: ''
+      }],
+      latestDirectionConfidence: sentByUser ? 92 : 22,
+      latestContactMessage: sentByUser ? '' : snippet.slice(0, 500),
+      latestSelfMessage: sentByUser ? snippet.slice(0, 500) : '',
+      selfMessageCount: sentByUser ? 1 : 0,
+      contactMessageCount: sentByUser ? 0 : 1,
+      unknownDirectionCount: 0,
       description: sentByUser ? `[YOU]: ${snippet}` : `[CONTACT - ${name}]: ${snippet}`,
       rawText: preview,
       messageCount: 1,
@@ -2863,9 +3558,12 @@
   }
 
   function conversationParticipantDetails(root, row) {
-    const scope = findConversationOuterShell(root) || root || row || null;
-    const headerScope = scope?.querySelector?.('.msg-overlay-bubble-header, .msg-thread__top-card, .msg-entity-lockup, [data-view-name*="conversation-header"], header') || scope;
+    const threadScope = root ? conversationThreadIdentityScope(root) : null;
+    const scope = threadScope || row || null;
+    const headerScope = threadScope ? (findConversationHeaderScope(threadScope) || threadScope) : row;
     const name = conversationParticipantName(root, row) || '';
+    const rowName = conversationRowParticipantName(row);
+    const matchingRow = row && (!name || !rowName || namesLikelyMatch(rowName, name)) ? row : null;
     const role = clean(firstText(headerScope, [
       '.msg-entity-lockup__entity-subtitle',
       '.artdeco-entity-lockup__subtitle',
@@ -2877,9 +3575,13 @@
       '.msg-entity-lockup__entity-caption',
       '[data-anonymize="location"]'
     ]));
-    const profileLink = headerScope?.querySelector?.(
-      '.msg-thread__link-to-profile[href*="/in/"], .msg-entity-lockup__entity-title a[href*="/in/"], a[href*="/in/"]'
-    ) || row?.querySelector?.('a[href*="/in/"]');
+    const profileLink = headerScope?.querySelector?.([
+      '.msg-thread__link-to-profile[href*="/in/"]',
+      '.msg-entity-lockup__entity-title a[href*="/in/"]',
+      '[data-view-name*="conversation-header"] a[href*="/in/"]',
+      '[data-testid*="conversation-header" i] a[href*="/in/"]',
+      'a[data-control-name*="profile" i][href*="/in/"]'
+    ].join(',')) || matchingRow?.querySelector?.('a[href*="/in/"]');
     const profileUrl = normalizeLinkedInUrl(profileLink?.href || profileLink?.getAttribute?.('href') || '');
     const userId = (() => {
       try {
@@ -2892,6 +3594,7 @@
       name,
       contactName: name,
       participantName: name,
+      avatarUrl: extractAvatarUrl(headerScope, profileLink) || extractAvatarUrl(matchingRow),
       role,
       company: inferCompany(role),
       location: locationText,
@@ -2900,14 +3603,64 @@
     };
   }
 
+  function conversationThreadIdentityScope(root) {
+    if (!root?.querySelectorAll) return null;
+    const outer = findConversationOuterShell(root) || root;
+    const evidence = isSafeConversationRootCandidate(outer) ? conversationRootEvidence(outer) : null;
+    if (evidence?.explicitShell) return outer;
+
+    const nested = [];
+    const add = (candidate) => {
+      if (!candidate || candidate === outer || nested.includes(candidate)) return;
+      if (!isSafeConversationRootCandidate(candidate) || !isVisible(candidate)) return;
+      const candidateEvidence = conversationRootEvidence(candidate);
+      if (!candidateEvidence.explicitShell && !(candidateEvidence.hasList && candidateEvidence.hasMessages)) return;
+      nested.push(candidate);
+    };
+    for (const selector of STRICT_CONVERSATION_SHELL_SELECTORS) {
+      outer.querySelectorAll(selector).forEach((candidate) => {
+        if (findConversationRow(candidate) === candidate && !conversationRootEvidence(candidate).hasMessages) return;
+        add(findConversationOuterShell(candidate) || candidate);
+      });
+    }
+    outer.querySelectorAll(CONVERSATION_MESSAGE_LIST_SELECTORS.join(',')).forEach((list) => {
+      add(findConversationOuterShell(list) || list);
+    });
+
+    const unique = nested.filter((candidate, index, all) =>
+      all.indexOf(candidate) === index && !all.some((other) => other !== candidate && candidate.contains(other))
+    );
+    return unique.length === 1 ? unique[0] : outer;
+  }
+
+  function findConversationHeaderScope(scope) {
+    if (!scope?.querySelector) return null;
+    const selector = [
+      '.msg-overlay-bubble-header',
+      '.msg-thread__top-card',
+      '.msg-entity-lockup',
+      '[data-view-name*="conversation-header"]',
+      '[data-testid*="conversation-header" i]',
+      ':scope > header'
+    ].join(',');
+    if (scope.matches?.(selector)) return scope;
+    return scope.querySelector(selector);
+  }
+
   function extractConversationNameFromAria(scope) {
     if (!scope?.querySelectorAll) return '';
-    const root = scope;
-    const nodes = [root, ...root.querySelectorAll?.([
-      '[aria-label*="conversation with" i]',
-      '[aria-label*="messages with" i]',
-      '[aria-label*="messaging with" i]',
-      '[aria-label*="chat with" i]'
+    const nodes = [scope, ...scope.querySelectorAll?.([
+      '.msg-overlay-bubble-header[aria-label]',
+      '.msg-thread__top-card[aria-label]',
+      '.msg-entity-lockup[aria-label]',
+      '[data-view-name*="conversation-header"][aria-label]',
+      '[data-testid*="conversation-header" i][aria-label]',
+      '.msg-s-message-list[aria-label]',
+      '.msg-s-message-list__scrollable[aria-label]',
+      '[data-view-name*="message-list"][aria-label]',
+      '[data-testid*="message-thread" i][aria-label]',
+      '[role="log"][aria-label]',
+      ':scope > header[aria-label]'
     ].join(',')) || []];
     for (const node of nodes) {
       const label = clean(node?.getAttribute?.('aria-label') || '');
@@ -2918,9 +3671,7 @@
     return '';
   }
 
-  function conversationParticipantName(root, row) {
-    const scopedRoot = findConversationOuterShell(root) || root || null;
-
+  function conversationRowParticipantName(row) {
     const rowName = row ? normalizeName(firstText(row, [
       '.msg-conversation-listitem__participant-names',
       '.msg-conversation-card__participant-names',
@@ -2928,25 +3679,47 @@
       'h3',
       'strong'
     ])) : '';
-    if (rowName && !/^messaging$/i.test(rowName) && !isCurrentUserName(rowName)) return rowName;
+    return rowName && !/^messaging$/i.test(rowName) && !isCurrentUserName(rowName) ? rowName : '';
+  }
 
-    const ariaName = scopedRoot ? extractConversationNameFromAria(scopedRoot) : '';
+  function conversationThreadParticipantName(root) {
+    const scopedRoot = conversationThreadIdentityScope(root);
+    if (!scopedRoot) return '';
+
+    const ariaName = extractConversationNameFromAria(scopedRoot);
     if (ariaName && !namesLikelyMatch(ariaName, currentUserName)) return ariaName;
 
-    if (!scopedRoot) return '';
-    const headerScope = scopedRoot.querySelector?.('.msg-overlay-bubble-header, .msg-thread__top-card, .msg-entity-lockup, [data-view-name*="conversation-header"], header') || scopedRoot;
+    const headerScope = findConversationHeaderScope(scopedRoot);
+    if (!headerScope) return '';
     const scopedName = normalizeName(firstText(headerScope, [
       '.msg-overlay-bubble-header__title',
       '.msg-entity-lockup__entity-title',
       '.msg-thread__link-to-profile',
       '[data-view-name*="conversation-header"] [data-anonymize="person-name"]',
       '[data-anonymize="person-name"]',
-      'a[href*="/in/"]',
+      '.msg-entity-lockup__entity-title a[href*="/in/"]',
+      'a[data-control-name*="profile" i][href*="/in/"]',
       'h2',
       'h3'
     ]));
     if (scopedName && !/^messaging$/i.test(scopedName) && !isCurrentUserName(scopedName)) return scopedName;
     return '';
+  }
+
+  function conversationRowMatchesThread(root, row) {
+    if (!row?.isConnected) return false;
+    const rowName = conversationRowParticipantName(row);
+    const threadName = conversationThreadParticipantName(root);
+    return !rowName || !threadName || namesLikelyMatch(rowName, threadName);
+  }
+
+  function conversationParticipantName(root, row) {
+    // Once a readable thread exists, its own header/ARIA identity is
+    // authoritative. The inbox row is only a fallback for a thread that has
+    // not opened yet or whose header has not rendered.
+    const threadName = root ? conversationThreadParticipantName(root) : '';
+    if (threadName) return threadName;
+    return conversationRowParticipantName(row);
   }
 
 

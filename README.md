@@ -5,7 +5,7 @@
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-0A66C2.svg" alt="MIT License"></a>
   <img src="https://img.shields.io/badge/Chrome-Manifest%20V3-4285F4?logo=googlechrome&logoColor=white" alt="Chrome Manifest V3">
-  <img src="https://img.shields.io/badge/Version-1.4.84-0A66C2" alt="Version 1.4.84">
+  <img src="https://img.shields.io/badge/Version-1.5.14-0A66C2" alt="Version 1.5.14">
   <img src="https://img.shields.io/badge/JavaScript-Vanilla-F7DF1E?logo=javascript&logoColor=111" alt="Vanilla JavaScript">
   <img src="https://img.shields.io/badge/AI-Groq%20%7C%20OpenRouter%20%7C%20Ollama-111827" alt="AI providers">
 </p>
@@ -92,13 +92,15 @@ IceBreaker combines both sides:
 
 ### Shared controls
 
-Every mode supports:
+Every mode supports four context-specific vibes:
 
-- **Professional**, **Neutral**, and **Engaging** vibes;
-- **Short**, **Medium**, and **Long** output;
+- **DMs:** Professional, Casual, Funny, and Engaging;
+- **Comments:** Friendly, Funny, Insightful, and Supportive;
+- **Conversation:** Friendly, Professional, Supportive, and Funny;
+- **Short** (15–20 words), **Medium** (30–40 words), and **Long** (60–200 words) output, always ending at a complete sentence;
 - editable generated text;
 - Groq, OpenRouter, Ollama, or a manually supplied API key;
-- `Alt+C` to generate and copy the current result.
+- `Alt+G` to generate a fresh result and `Alt+C` to copy the current result.
 
 ---
 
@@ -168,10 +170,14 @@ IceBreaker does **not** click LinkedIn’s Send button. It prepares the composer
 | **Autopilot memory** | Remembers checked, skipped, failed, and drafted profiles across runs |
 | **Duplicate protection** | Avoids overwriting existing text and reprocessing completed profiles |
 | **Diagnostics** | Uses `AP-S…`, `AP-W…`, and `AP-E…` codes to show the exact skip, warning, or failure stage |
-| **Keyboard workflow** | `Alt+C` for manual generation/copy and `Alt+S` for hover-start Autopilot |
+| **Keyboard workflow** | `Alt+G` to generate, `Alt+C` to copy, and `Alt+S` for hover-start Autopilot |
 | **Local control** | Settings, résumé data, provider preferences, and Autopilot memory remain in the Chrome profile |
 
 ---
+
+## Styling architecture
+
+The React side panel and settings page use a locally bundled, tree-shaken Bootstrap 5 stylesheet plus compact IceBreaker theme modules (`*-theme.js`). Bootstrap handles reusable buttons, forms, cards, badges, layout and spacing; the small theme layer preserves IceBreaker colors, animations, pseudo-elements and responsive states. No external CSS CDN is used, so the extension remains compatible with Chrome Manifest V3. The LinkedIn content script keeps its isolated local style module to avoid leaking Bootstrap styles into LinkedIn.
 
 ## Architecture
 
@@ -284,7 +290,8 @@ Open `chrome://extensions/shortcuts` and confirm:
 
 | Action | Default shortcut |
 |---|---|
-| Generate and copy the current DM, comment, or reply | `Alt+C` |
+| Generate a fresh DM, comment, or reply | `Alt+G` |
+| Copy the current generated text | `Alt+C` |
 | Start Connections Autopilot from the hovered card | `Alt+S` |
 
 ---

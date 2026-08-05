@@ -1,12 +1,12 @@
 {
   "manifest_version": 3,
-  "name": "IceBreaker — Your Wingman for LinkedIn",
+  "name": "IceBreaker \u2014 Your Wingman for LinkedIn",
   "short_name": "IceBreaker",
-  "version": "1.4.90",
-  "version_name": "1.4.90 Stable AI Generation",
-  "description": "IceBreaker — 𝗬𝗼𝘂𝗿 𝗪𝗶𝗻𝗴𝗺𝗮𝗻 𝗳𝗼𝗿 𝗟𝗶𝗻𝗸𝗲𝗱𝗜𝗻. Create smart DMs, comments and replies with Groq, Ollama, OpenRouter or your own API.",
+  "version": "1.5.14",
+  "version_name": "1.5.14 Conversation 15-message capture patch",
+  "description": "IceBreaker - Your Wingman for LinkedIn. Context-aware DMs, PDF-matched comments, and conversation replies with Groq, OpenRouter, Ollama, and custom API support.",
   "minimum_chrome_version": "116",
-  "homepage_url": "https://github.com/anamta-JINX/IceBreaker---Your_Wingman_For_LinkedIn",
+  "homepage_url": "https://github.com/anamta-JINX/IceBreaker-YourWingmanForLinkedIn",
   "permissions": [
     "storage",
     "sidePanel",
@@ -71,10 +71,8 @@
         "https://www.linkedin.com/*"
       ],
       "js": [
+        "src/backend/content/linkedin-content-styles.js",
         "src/backend/content/linkedin-content.js"
-      ],
-      "css": [
-        "src/backend/content/linkedin-content.css"
       ],
       "run_at": "document_idle"
     }

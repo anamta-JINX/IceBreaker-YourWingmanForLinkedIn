@@ -1,4 +1,4 @@
-import { access, readFile } from "node:fs/promises";
+import { access, readFile, readdir } from "node:fs/promises";
 import { constants } from "node:fs";
 import path from "node:path";
 import process from "node:process";
@@ -47,11 +47,33 @@ for (const script of manifest.content_scripts ?? []) {
   for (const value of script.js ?? []) addPath(referencedPaths, value);
   for (const value of script.css ?? []) addPath(referencedPaths, value);
 }
+for (const script of manifest.content_scripts ?? []) {
+  if ((script.css ?? []).length) errors.push("Content scripts must use the local CSS-in-JS module instead of manifest CSS entries.");
+}
 for (const group of manifest.web_accessible_resources ?? []) {
   for (const value of group.resources ?? []) if (!value.includes("*")) addPath(referencedPaths, value);
 }
 for (const relativePath of [...referencedPaths].sort()) {
   if (!(await exists(relativePath))) errors.push(`Manifest references a missing file: ${relativePath}`);
+}
+
+async function collectCssFiles(directory, base = "") {
+  const found = [];
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const relative = path.join(base, entry.name);
+    const absolute = path.join(directory, entry.name);
+    if (entry.isDirectory()) found.push(...await collectCssFiles(absolute, relative));
+    else if (entry.isFile() && entry.name.toLowerCase().endsWith(".css")) found.push(relative);
+  }
+  return found;
+}
+
+const runtimeCssFiles = await collectCssFiles(path.join(root, "src"), "src");
+const allowedRuntimeCss = new Set(["src/frontend/vendor/bootstrap.min.css"]);
+for (const cssFile of runtimeCssFiles) {
+  if (!allowedRuntimeCss.has(cssFile.replaceAll("\\", "/"))) {
+    errors.push(`Unexpected runtime stylesheet remains: ${cssFile}`);
+  }
 }
 
 const requiredRuntimeFiles = [

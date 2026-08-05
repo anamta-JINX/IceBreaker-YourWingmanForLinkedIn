@@ -45,3 +45,8 @@ npm run validate
 The validation checks the Manifest V3 paths, compares the React element trees with the retained static reference pages, rejects legacy HTML-template injection, and verifies that every controller `getElementById` dependency still exists.
 
 The original static DOM structure is retained as a compact validation contract in `scripts/contracts/frontend-dom-contract.json`; redundant HTML backups are not shipped.
+
+
+## Bootstrap migration (v1.4.92)
+
+The side panel and settings React trees now use locally bundled, tree-shaken Bootstrap 5 classes for buttons, forms, cards, badges, flex/grid layout, spacing and accessibility. No CDN is used. IceBreaker-only colors, animations, pseudo-elements, responsive rules and controller state classes remain in compact JavaScript theme modules.

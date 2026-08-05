@@ -1,4 +1,187 @@
+# Changelog
+
+## 1.5.14
+
+- Fixed Alt+G Conversation regeneration so it captures the open thread before opening the side panel, removing the panel-activation race behind `E-RPL-16` and intermittent `E-RPL-08` failures.
+- Preserved the current conversation row and thread when the side panel becomes active; those targets are now cleared only when the panel closes or the user changes context.
+- Added bounded recovery when LinkedIn replaces its message pane during capture, including re-detection of the new shell for the same participant.
+- Added a guarded Alt+G fallback to the full structured transcript already backing the visible draft when live recapture briefly fails; preview-only context, another tab, another full-page thread, and stale cached context are rejected.
+- Added explicit shortcut diagnostic codes and automated coverage for recoverable errors, structured-context validation, tab/thread isolation, candidate priority, and cache expiry.
+
+## 1.5.13
+
+- Expanded the DMs vibe selector to four choices: Professional, Casual, Funny, and Engaging.
+- Expanded Comments to Friendly, Funny, Insightful, and Supportive, with a distinct contextual-humor icon and prompt path.
+- Reworked Conversation vibes as Friendly, Professional, Supportive, and Funny, each with mode-specific prompt semantics.
+- Made all four choices real generation values rather than cosmetic labels, while retaining the situational, non-generic humor rules from v1.5.12.
+- Reflowed the controls into four equal responsive columns and verified DMs, Comments, and Conversation at 406 px and 300 px without horizontal overflow or clipped labels.
+
+## 1.5.12
+
+- Set the exact inclusive generation ranges to Short 15–20 words, Medium 30–40 words, and Long 60–200 words across DMs, Comments, and Conversation replies.
+- Reworked manual DM prompting around specific, two-way connection building: concrete recipient context, a truthful relevance bridge, and an easy reason to respond replace generic networking filler and immediate transactional asks.
+- Added mode-aware vibe instructions and required any humor to be genuinely situational and context-specific, blocking canned jokes, generic banter, meme filler, and forced punchlines.
+- Added one automatic correction pass when a model misses the selected range or leaves its final sentence unfinished.
+- Replaced arbitrary word clipping with complete-sentence boundary enforcement and reject any residual fragment instead of displaying text cut off mid-sentence.
+- Increased Groq, OpenRouter, and Ollama output budgets for 200-word drafts and detect provider length-limit finishes before incomplete text reaches the editor.
+- Preserved the Conversation mode newest-15 transcript capture and stabilized the expected inbox-row-to-thread navigation during hover capture.
+
+## 1.5.11
+
+- Fixed Conversation mode silently replacing the open thread with a one-line inbox preview when LinkedIn truncated or reformatted the newest-message snippet.
+- Made the exact open thread authoritative and wait for its stable bottom message window before generating; explicit capture now opens the selected row when necessary instead of generating from preview-only context.
+- Preserved separate messages when LinkedIn nests several message bodies inside one event container, with bubble-level sender evidence taking priority over mixed outer-container metadata.
+- Continued supplying the newest 15 available messages in chronological order to both the Active Thread viewer and reply prompt.
+- Added regressions for truncated previews, stale previews, nested multi-message events, virtualized message windows, sender direction, and newest-15 prompt retention.
+
+## 1.5.10
+
+- Added the same working icon-and-label Regenerate control from DMs to the Comments and Conversation draft headers.
+- Removed the decorative lightbulb/sliders and edit/menu icon clusters that occupied the Regenerate position in those modes.
+- Preserved the existing generation handler, draft layouts, vibe and length controls, latest-thread capture, and responsive behavior.
+- Verified the controls at standard and narrow side-panel sizes without horizontal overflow.
+
+## 1.5.9
+
+- Unified Conversation mode's header, mode navbar, and provider/model row with the exact shared UI used by DMs and Comments.
+- Removed Conversation-only sizing, spacing, typography, icon, and responsive overrides from the shared top chrome.
+- Restored the shared brand slogan and model-row actions while preserving the Conversation thread, reply, vibe, length, capture, and generation logic.
+- Verified matching top-chrome geometry at standard and narrow side-panel sizes without horizontal overflow.
+
+## 1.5.8
+
+- Increased Conversation capture from the newest 8 messages to the newest 15 available messages while preserving chronological order.
+- Added bottom-of-thread settling so LinkedIn finishes rendering its latest virtualized message window before IceBreaker captures it.
+- Fixed prompt truncation so long conversations preserve the newest messages instead of cutting them off after older or middle context.
+- Made the Active Thread context body independently scrollable and rendered all captured messages rather than only six bubbles.
+- Automatically opens the context scroller at the newest message and labels the exact latest-message count used for the reply.
+- Added regression coverage for a 20-message thread, the newest-15 prompt window, internal scrolling, and narrow no-overflow layouts.
+
+## 1.5.7
+
+- Fixed Conversation mode so the exact hovered inbox row is resolved before LinkedIn's broad Messaging container.
+- Made the visible thread header and thread-specific ARIA identity authoritative once the conversation is open.
+- Prevented a stale or first active inbox row from supplying the wrong participant name, profile URL, avatar, or sender-direction hints.
+- Narrowed conversation capture to the local thread wrapper instead of combining the inbox list and open message thread.
+- Added a two-person regression fixture that verifies hovering Sarah while Alice is the first active inbox row still captures Sarah and the correct transcript.
+- Synced the service-worker and content-detector versions so already-open LinkedIn tabs receive the targeting repair after refresh.
+
+## 1.5.6
+
+- Fixed Conversation capture so LinkedIn message-body elements are resolved to their complete message events before sender detection.
+- Added confidence-ranked direction evidence: explicit outgoing/incoming markers and sender identities outrank message-group propagation, inbox previews, and visual alignment.
+- Prevented an unprefixed inbox preview or generic left-aligned container from relabeling a verified user message as the contact's message.
+- Preserved the ordered structured message list through generation and explicitly supplied the latest verified contact and user messages to the reply prompt.
+- Added fail-safe `E-RPL-05` handling when the newest sender is genuinely ambiguous instead of generating a reply from a guessed direction.
+- Synced the content-script detector version so already-open LinkedIn tabs receive the repaired classifier after the extension update.
+
+## 1.5.5
+
+- Rebuilt Conversation mode to match the supplied 406 x 891 PDF, including the full-scale header stack, Active Thread card, directional message bubbles, AI Suggested Reply editor, and joined Copy Reply / Reset actions.
+- Added the Comments-style Friendly / Insightful / Supportive vibe row and the DM-style Short / Medium / Long selector beneath the reply card.
+- Preserved captured LinkedIn message direction and timestamps for the visual thread without changing the reply-generation transcript or provider logic.
+- Kept Autopilot hidden in Conversation mode while preserving its existing runtime implementation.
+- Verified the native reference size and responsive 340 x 720 and 300 x 720 layouts without horizontal overflow or clipped controls.
+
+## 1.5.4
+
+- Matched the Comments mode action row, post context card, AI Draft editor, and tone controls to the supplied PDF at its native 406 x 891 side-panel size.
+- Added a compact Short / Medium / Long selector beneath the comment tone controls, using the same minimal treatment as DM mode.
+- Limited the LinkedIn post preview to the PDF's three-line excerpt and corrected the avatar, footer, editor, character counter, and tone-control proportions.
+- Kept the header, mode navigation, provider/model controls, Autopilot implementation, and generation behavior unchanged.
+- Verified responsive layouts down to 300 px without horizontal overflow.
+
+## 1.5.2
+
+- Rebuilt Comments mode below the provider/model bar to match the supplied Comments Mode PDF.
+- Removed the visible Autopilot area from Comments mode.
+- Added the exact Reset / Copy Comment action row, Reading Context post card, AI Draft card, comment-vibe icons, and Short / Medium / Long controls.
+- Added live hovered-post author photos, post age, reaction count, comment count, correct View Post destination, and editable character count.
+- Preserved provider selection, model selection, hover extraction, generation, copying, resetting, tone/length storage, and Chrome messaging.
+- Added responsive safeguards for side-panel widths down to 300 px without horizontal overflow.
+
+## 1.5.1
+
+- Rounded the DMs vibe, length, Copy Message, and Reset controls to match the supplied side-panel reference.
+- Added hovered LinkedIn profile photos to the DMs, Comments, and Conversation context cards with initials as a fallback.
+- Preserved all existing generation, hover detection, mode switching, copy, reset, and provider functionality.
+
+## 1.5.0 — Clean PDF-matched side panel
+
+- Removed the visible Autopilot card from every side-panel mode.
+- Preserved the existing Autopilot runtime and settings hooks so no background functionality is deleted.
+- Kept DMs, Comments, Conversation, and Empty State layouts unchanged otherwise.
+- Kept all controller-required DOM IDs available in a permanently hidden compatibility container.
+- Prevented the Autopilot section from reappearing through mode-specific styles.
+
+## 1.4.99 - Compact overflow-safe DMs panel
+
+- Removed the Role, Company, and Location fact bubbles from the DMs profile card.
+- Resized the DMs Autopilot, context, message, editor, and joined action sections to the supplied PDF scale.
+- Preserved separate three-option Vibe and Length rows while preventing horizontal overflow.
+- Preserved all controller IDs and existing generation, hover, Autopilot, Regenerate, Copy, and Reset behavior.
+
+## 1.4.97 - Exact PDF-matched DMs panel
+
+
+## 1.4.98
+
+- Restored all three DMs vibe choices: Professional, Casual, and Engaging.
+- Added a dedicated length row directly below with Short, Medium, and Long.
+- Kept the controls compact and responsive without horizontal overflow.
+- Preserved the existing DMs generation, Regenerate, Copy, Reset, and Autopilot behavior.
+
+- Rebuilt the DMs content area below the provider/model row to match the supplied reference PDF.
+- Removed the flexible vertical gap between the profile context and message composer.
+- Matched the Autopilot, profile/context, message editor, and joined Copy/Reset control sizing.
+- Preserved all existing controller IDs, generation, copy, reset, hover-context, and Autopilot behavior.
+
+## 1.4.96 — PDF-scale side-panel icons and controls
+
+- Replaced the DMs, Comments, and Conversation navigation artwork with locally rendered SVG icons matching the supplied PDF.
+- Reduced header, mode tabs, provider/model bar, buttons, cards, and empty-state geometry to the PDF scale.
+- Preserved all controller IDs, Chrome messaging, generation, copy, and Autopilot behavior.
+
+## 1.4.94 - Compact reference-matched side panel
+
+
+## 1.4.95 - Exact empty state and split shortcuts
+
+- Matched the side-panel empty state to the supplied PDF proportions and spacing.
+- Restored the original IceBreaker iB logo in the side-panel header.
+- Shows Alt+G for generation and Alt+C for copying as separate actions.
+- Preserved all side-panel IDs, controllers, generation logic, and Chrome extension behavior.
+
+- Rebuilt the side-panel header with a LinkedIn-blue IceBreaker wordmark and the slogan “Your Wingman For LinkedIn”.
+- Matched the supplied DMs, Comments, Conversation and Empty State references more closely.
+- Reduced the vertical height of the DMs / Comments / Conversation mode bar.
+- Tightened the provider/model toolbar and corrected card spacing for a 395px Chrome side panel.
+- Added mode-specific context labels, comment footer styling and a unified conversation reply card.
+- Preserved all controller IDs, AI logic, LinkedIn detection, Autopilot behavior and Chrome messaging.
+
+## 1.4.92
+
+## 1.4.93 - Reference-matched Bootstrap UI
+
+- Rebuilt DMs, Comments, Conversation, and empty side-panel states to match the approved visual references.
+- Rebuilt Profile, AI Provider, Message Preferences, Autopilot, and Privacy settings pages to match the approved settings references.
+- Preserved all Chrome messaging, AI provider, hover capture, resume, and Autopilot controller bindings.
+- Kept Bootstrap local for Manifest V3 compatibility; no CDN dependencies were added.
+
+- Migrated the React side panel and settings interface to locally bundled Bootstrap 5 utilities and components.
+- Tree-shook Bootstrap to the selectors used by IceBreaker.
+- Replaced the previous full style modules with compact IceBreaker theme overrides.
+- Preserved all existing DOM IDs, controllers and extension behavior.
+
 ## 1.4.90 - Stable Repeated AI Generation
+
+## [1.4.91] - 2026-08-03
+
+### Changed
+- Replaced side-panel, options-page, and LinkedIn content global stylesheets with locally bundled CSS-in-JS style modules.
+- Preserved the original CSS rules, React DOM structure, responsive behavior, animations, and extension functionality.
+- Removed all runtime `.css` files and external stylesheet dependencies.
+
 
 - Reduced cloud prompt size while preserving the most relevant profile, CV, post, and conversation context.
 - Added per-key Groq cooldowns so one rate-limited key no longer blocks the full official key pool.

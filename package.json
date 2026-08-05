@@ -1,12 +1,14 @@
 {
   "name": "icebreaker-linkedin-extension",
-  "version": "1.4.90",
+  "version": "1.5.14",
   "private": true,
-  "description": "IceBreaker Chrome extension with component-based React side panel and settings frontend.",
+  "description": "IceBreaker Chrome extension with React and locally bundled Bootstrap 5, featuring PDF-matched compact side-panel modes, exact Conversation and Comments controls, live context, and hovered-profile photos.",
   "scripts": {
     "validate:manifest": "node scripts/github/validate-extension.mjs",
     "validate:react": "node scripts/github/validate-react-structure.mjs",
-    "validate": "npm run validate:manifest && npm run validate:react"
+    "validate": "npm run validate:manifest && npm run validate:react && npm run validate:bootstrap && npm run validate:conversation-shortcut",
+    "validate:bootstrap": "node scripts/github/validate-bootstrap-structure.mjs",
+    "validate:conversation-shortcut": "node scripts/github/validate-conversation-shortcut.mjs"
   },
   "engines": {
     "node": ">=18"
