@@ -224,15 +224,22 @@ textarea.form-control { min-height: 72px; resize: vertical; }
 
 /* Autopilot dashboard */
 #autopilot { padding: 0 !important; }
-.autopilot-page-heading { min-height: 130px; padding: 25px; border: 1px solid #e1e4eb; border-radius: 13px; background: linear-gradient(135deg, #f2f4ff, #f8fbff); box-shadow: var(--ib-shadow); }
+.autopilot-page-heading { position: relative; min-height: 130px; padding: 25px; overflow: hidden; border: 1px solid #e1e4eb; border-radius: 13px; background: linear-gradient(135deg, #f2f4ff, #f8fbff); box-shadow: var(--ib-shadow); }
+.autopilot-page-heading::after { content: "ϟ"; position: absolute; right: 34px; top: -15px; color: rgba(10,102,194,.10); font-size: 112px; font-weight: 300; line-height: 1; transform: rotate(7deg); pointer-events: none; }
+.autopilot-page-heading > * { position: relative; z-index: 1; }
 .autopilot-page-heading h2 { font-size: 21px; }
-.ap-safety-banner { margin: -1px 20px 20px; padding: 13px 16px; border: 0; border-left: 4px solid #f0b325; border-radius: 0; color: #654f17 !important; background: #fff8df; }
-.ap-safety-banner strong { margin-right: 9px; }
+.ap-safety-banner { margin: -1px 20px 20px; gap: 9px; padding: 13px 16px; border: 0; border-left: 4px solid #f0b325; border-radius: 0 0 10px 10px; color: #654f17 !important; background: #fff8df; }
+.ap-safety-banner strong { flex: 0 0 auto; }
+.ap-safety-banner > span { flex: 1; font-size: 10px; line-height: 1.45; }
+.ap-adjust-limits { flex: 0 0 auto; padding: 0 !important; color: #7b4a13 !important; font-size: 10px; font-weight: 800; text-decoration: underline; }
 .ap-page-grid { display: flex !important; flex-direction: column; }
 .ap-run-panel { order: -1; color: #fff; background: #1d2229; border-color: #1d2229; }
 .ap-panel { padding: 18px; }
 .ap-run-panel h3, .ap-run-panel .eyebrow { color: #fff; }
-.ap-run-panel .ap-run-action { float: right; width: auto; margin-top: -44px; padding: 9px 15px; border-radius: 7px; color: #fff; background: var(--ib-blue); font-size: 11px; }
+.ap-run-controls { gap: 8px; }
+.ap-run-controls .btn { min-height: 38px; padding: 8px 16px; border-radius: 8px; font-size: 10px; font-weight: 750; }
+.ap-run-controls #apRunControlButton.running { border-color: #6d7885; background: #343b44; }
+.ap-run-panel .ap-run-action { display: block; float: none; width: auto; margin: 18px 0 0; padding: 0; border: 0; color: #a8b0bb; background: transparent; font-size: 10px; text-align: left; pointer-events: none; }
 .ap-progress-track { height: 5px; margin: 20px 0 16px; background: #333941; }
 .ap-progress-track span { display: block; height: 100%; background: var(--ib-blue); }
 .ap-stat-grid { grid-template-columns: repeat(6, minmax(0,1fr)); }
@@ -243,6 +250,11 @@ textarea.form-control { min-height: 72px; resize: vertical; }
 .ap-stat-grid span { color: #9fa7b2; font-size: 9px; }
 .ap-fixed-targets, .ap-check-row { gap: 7px; }
 .ap-fixed-targets span { padding: 5px 8px; border-radius: 999px; color: var(--ib-blue); background: var(--ib-blue-soft); font-size: 9px; }
+.ap-settings-tabs { gap: 0; margin: 15px -18px 0; padding: 0 18px; border-bottom: 1px solid #e3e7ed; }
+.ap-settings-tabs button { min-height: 42px; padding: 8px 18px; border: 0; border-bottom: 3px solid transparent; color: #4d5664; background: transparent; font-size: 10px; font-weight: 750; }
+.ap-settings-tabs button:hover { color: var(--ib-blue); background: #f7faff; }
+.ap-settings-tabs button.active { color: var(--ib-blue); border-bottom-color: var(--ib-blue); }
+.ap-settings-panel { margin-top: 16px; }
 .ap-check-row label { display: flex; gap: 8px; padding: 7px 0; color: #434c58; font-size: 10px; }
 .ap-panel-actions { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--ib-line); }
 .ap-resume-heading, .ap-data-heading { margin: 20px 0 10px; padding: 16px; border: 1px solid #e0e3e9; border-radius: 10px; background: #fff; }
@@ -308,6 +320,11 @@ code { color: #6a4dbd; }
   .privacy-grid > div:nth-child(odd) { border-right: 0; }
   .api-mode-control, .provider-cards { grid-template-columns: 1fr; }
   .ap-stat-grid { grid-template-columns: repeat(2,1fr); }
+  .ap-safety-banner { margin-inline: 8px; flex-wrap: wrap; }
+  .ap-settings-tabs { overflow-x: auto; }
+  .ap-settings-tabs button { padding-inline: 12px; }
+  .ap-run-panel .ap-panel-head { gap: 12px; flex-direction: column; }
+  .ap-run-controls { width: 100%; }
   .topbar-user { display: none; }
 }
 `;

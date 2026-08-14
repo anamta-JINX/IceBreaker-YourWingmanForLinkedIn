@@ -1,0 +1,647 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IceBreaker Settings</title>
+  <link rel="stylesheet" href="./options.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <img src="../../../assets/icons/icon48.png" alt="IceBreaker">
+        <div>
+          <div class="brand-name">IceBreaker</div>
+          <div class="brand-tagline">Your Wingman for LinkedIn</div>
+        </div>
+      </div>
+      <div class="author">Built by Anamta</div>
+    </div>
+  </header>
+
+  <main class="layout">
+    <aside class="sidebar">
+      <a href="#profile">Your profile</a>
+      <a href="#ai">AI provider</a>
+      <a href="#preferences">Message preferences</a>
+      <a href="#autopilot">Autopilot</a>
+      <a href="#privacy">Privacy</a>
+    </aside>
+
+    <div class="content">
+      <section id="profile" class="section-card profile-intelligence-card">
+        <div class="profile-hero">
+          <div class="profile-hero-copy">
+            <span class="eyebrow">Your reusable AI identity</span>
+            <h1>Build a complete profile from your résumé</h1>
+            <p>Start with one PDF or DOCX. IceBreaker stores the original file locally, reads it privately, fills your professional profile, detects your LinkedIn, GitHub and portfolio links once, and reuses the saved context for relevant DMs.</p>
+            <div class="profile-trust-row">
+              <span>Original file saved locally</span>
+              <span>Extracted text stays hidden</span>
+              <span>Receiver interests choose the project</span>
+            </div>
+          </div>
+          <div class="profile-hero-status profile-completeness-card">
+            <span id="profileContextStatusPill" class="status-pill">Profile setup</span>
+            <strong id="profileCompletenessText">0% complete</strong>
+            <div class="profile-progress-track"><span id="profileCompletenessBar"></span></div>
+            <small id="profileContextUpdated">Upload your résumé to build the profile automatically.</small>
+          </div>
+        </div>
+
+        <div class="settings-subsection resume-panel resume-first-panel">
+          <div class="subsection-heading">
+            <div>
+              <span class="step-number">1</span>
+              <div><h2>Upload your résumé first</h2><p>This single step creates the starting profile. The original file is saved locally; extracted text is never shown in settings.</p></div>
+            </div>
+            <span id="resumeStatusPill" class="status-pill">No résumé</span>
+          </div>
+
+          <div id="dropzone" class="dropzone resume-primary-dropzone" tabindex="0" role="button" aria-label="Upload résumé">
+            <input id="resumeFile" type="file" accept=".docx,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden>
+            <div class="drop-icon">CV</div>
+            <div>
+              <strong>Drop your PDF or DOCX here</strong>
+              <span>IceBreaker will save the file, read it locally, detect professional details, and fill the profile below.</span>
+            </div>
+            <button id="chooseResumeButton" class="primary-button compact-button" type="button">Choose résumé</button>
+          </div>
+
+          <div id="parseStatus" class="inline-status hidden"></div>
+          <textarea id="resumeText" hidden aria-hidden="true"></textarea>
+
+          <article id="resumeFileCard" class="resume-file-card hidden" aria-live="polite">
+            <div class="resume-file-icon"><span>CV</span><small id="resumeFileType">FILE</small></div>
+            <div class="resume-file-copy">
+              <div class="resume-file-title-row">
+                <strong id="resumeFileName">Résumé</strong>
+                <span id="resumeFileBadge" class="source-state ready">Saved locally</span>
+              </div>
+              <p id="resumeFileMeta">Your original résumé file is stored in this Chrome profile.</p>
+              <div id="resumeDetectedSummary" class="resume-insight-chips"></div>
+            </div>
+            <div class="resume-file-actions">
+              <button id="downloadResumeButton" class="outline-button" type="button">Download file</button>
+              <button id="replaceResumeButton" class="outline-button" type="button">Replace</button>
+              <button id="removeResumeButton" class="text-button danger" type="button">Remove</button>
+            </div>
+          </article>
+        </div>
+
+        <div class="settings-subsection basic-profile-panel">
+          <div class="subsection-heading">
+            <div>
+              <span class="step-number">2</span>
+              <div><h2>Professional profile</h2><p>Review what was detected, then complete any missing details. These fields guide DM relevance without forcing the same project.</p></div>
+            </div>
+            <span id="profileSetupHint" class="mini-security-badge">Resume-assisted</span>
+          </div>
+
+          <div class="profile-grid profile-grid-wide">
+            <div>
+              <label class="field-label" for="senderName">Full name</label>
+              <input id="senderName" type="text" placeholder="Your full name" autocomplete="name">
+            </div>
+            <div>
+              <label class="field-label" for="professionalHeadline">Professional headline</label>
+              <input id="professionalHeadline" type="text" placeholder="AI Engineer · Full-Stack Developer">
+            </div>
+            <div>
+              <label class="field-label" for="targetRoles">Target roles</label>
+              <input id="targetRoles" type="text" placeholder="AI Engineer, ML Engineer, Full-Stack Developer">
+            </div>
+            <div>
+              <label class="field-label" for="profileLocation">Location</label>
+              <input id="profileLocation" type="text" placeholder="Lahore, Pakistan" autocomplete="address-level2">
+            </div>
+            <div>
+              <label class="field-label" for="contactEmail">Professional email</label>
+              <input id="contactEmail" type="email" placeholder="name@example.com" autocomplete="email">
+            </div>
+            <div>
+              <label class="field-label" for="contactPhone">Phone <span>optional</span></label>
+              <input id="contactPhone" type="tel" placeholder="+92 ..." autocomplete="tel">
+            </div>
+            <div>
+              <label class="field-label" for="experienceLevel">Experience level</label>
+              <select id="experienceLevel">
+                <option value="">Select level</option>
+                <option value="student">Student</option>
+                <option value="intern">Intern / Trainee</option>
+                <option value="entry">Entry level</option>
+                <option value="mid">Mid level</option>
+                <option value="senior">Senior</option>
+              </select>
+            </div>
+            <div>
+              <label class="field-label" for="workPreference">Work preference</label>
+              <select id="workPreference">
+                <option value="">No preference</option>
+                <option value="remote">Remote</option>
+                <option value="hybrid">Hybrid</option>
+                <option value="onsite">On-site</option>
+                <option value="flexible">Flexible</option>
+              </select>
+            </div>
+            <div>
+              <label class="field-label" for="availability">Availability</label>
+              <input id="availability" type="text" placeholder="Available for internships from August 2026">
+            </div>
+            <div>
+              <label class="field-label" for="outreachGoal">Primary outreach goal</label>
+              <select id="outreachGoal">
+                <option value="opportunities">Explore relevant opportunities</option>
+                <option value="internship">Find an internship</option>
+                <option value="fulltime">Find a full-time role</option>
+                <option value="networking">Build professional connections</option>
+                <option value="collaboration">Find project collaborators</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="profile-grid profile-grid-textareas">
+            <div class="field-block">
+              <label class="field-label" for="coreSkills">Core skills</label>
+              <textarea id="coreSkills" rows="3" placeholder="Python, React, TensorFlow, Flask, Node.js, Chrome Extensions"></textarea>
+              <small class="field-help">Comma-separated skills help IceBreaker match your background to the receiver.</small>
+            </div>
+            <div class="field-block">
+              <label class="field-label" for="preferredIndustries">Preferred industries <span>optional</span></label>
+              <textarea id="preferredIndustries" rows="3" placeholder="Artificial intelligence, developer tools, SaaS, education technology"></textarea>
+              <small class="field-help">Used only when relevant to the receiver or company.</small>
+            </div>
+          </div>
+
+          <div class="field-block">
+            <label class="field-label" for="customBio">Profile summary and AI instructions <span>optional</span></label>
+            <textarea id="customBio" rows="4" placeholder="Summarise what you are looking for, your strongest value, and anything the AI should handle carefully."></textarea>
+          </div>
+        </div>
+
+        <div class="settings-subsection connected-profile-panel">
+          <div class="subsection-heading">
+            <div>
+              <span class="step-number">3</span>
+              <div><h2>Detected and connected links</h2><p>Links found in the résumé are inserted into empty fields once. Import them once to save their useful context for future DMs.</p></div>
+            </div>
+            <span class="mini-security-badge">Posts excluded</span>
+          </div>
+
+          <div class="connected-links-grid">
+            <label class="link-source-card linkedin-link-card">
+              <span class="source-icon">in</span>
+              <span class="link-source-copy">
+                <strong>LinkedIn profile</strong>
+                <small>About, experience, education, skills and profile sections. Posts and activity are excluded.</small>
+                <input id="linkedinUrl" type="url" placeholder="https://www.linkedin.com/in/your-name/" autocomplete="url">
+              </span>
+              <span id="linkedinContextState" class="source-state">Not imported</span>
+            </label>
+
+            <label class="link-source-card github-link-card">
+              <span class="source-icon">GH</span>
+              <span class="link-source-copy">
+                <strong>GitHub profile</strong>
+                <small>Profile bio plus repository names, descriptions, topics, languages and project links.</small>
+                <input id="githubUrl" type="url" placeholder="https://github.com/username" autocomplete="url">
+              </span>
+              <span id="githubContextState" class="source-state">Not imported</span>
+            </label>
+
+            <label class="link-source-card portfolio-link-card">
+              <span class="source-icon">www</span>
+              <span class="link-source-copy">
+                <strong>Portfolio website</strong>
+                <small>Project, case-study, about and skills content from your public portfolio.</small>
+                <input id="portfolioUrl" type="url" placeholder="https://yourportfolio.dev" autocomplete="url">
+              </span>
+              <span id="portfolioContextState" class="source-state">Not imported</span>
+            </label>
+          </div>
+
+          <div class="context-actions">
+            <button id="importProfileContextButton" class="primary-button context-import-button" type="button">
+              <span class="button-spark">✦</span><span id="importProfileContextLabel">Import detected sources once</span>
+            </button>
+            <button id="clearProfileContextButton" class="outline-button subtle-danger" type="button">Clear saved web context</button>
+            <span id="profileImportStatus" class="context-action-status">Upload a résumé or add links manually, then import.</span>
+          </div>
+
+          <div class="project-match-note">
+            <span class="project-match-icon" aria-hidden="true">↗</span>
+            <div><strong>Receiver-based project selection</strong><small>DMs receive one best-fit project only. Relevance wins; closely matched projects rotate to prevent repetition.</small></div>
+          </div>
+
+          <div id="profileContextCards" class="context-summary-grid" aria-live="polite">
+            <article id="linkedinContextCard" class="context-summary-card" data-source="linkedin"><div><span class="context-dot"></span><strong>LinkedIn</strong></div><p>Waiting for a profile link.</p><small>Posts stay excluded.</small></article>
+            <article id="githubContextCard" class="context-summary-card" data-source="github"><div><span class="context-dot"></span><strong>GitHub</strong></div><p>Waiting for a GitHub link.</p><small>Repository descriptions are preserved.</small></article>
+            <article id="portfolioContextCard" class="context-summary-card" data-source="portfolio"><div><span class="context-dot"></span><strong>Portfolio</strong></div><p>Waiting for a portfolio link.</p><small>Permission is requested only for this site.</small></article>
+          </div>
+
+          <details class="saved-context-review">
+            <summary>Review imported web context</summary>
+            <textarea id="profileContextPreviewText" rows="12" readonly placeholder="Imported LinkedIn, GitHub and portfolio context will appear here."></textarea>
+          </details>
+        </div>
+
+        <article id="profilePreview" class="candidate-card hidden">
+          <div id="candidateInitials" class="candidate-avatar">IB</div>
+          <div class="candidate-copy">
+            <span class="eyebrow">Saved IceBreaker profile</span>
+            <h2 id="candidateName">Candidate</h2>
+            <p id="candidateContact"></p>
+            <p id="candidateRoles"></p>
+            <div id="candidateSources" class="candidate-source-chips"></div>
+          </div>
+        </article>
+      </section>
+
+      <section id="ai" class="section-card">
+        <div class="section-heading">
+          <div>
+            <span class="eyebrow">Generation engine</span>
+            <h2>Choose an AI provider</h2>
+            <p>Ollama runs locally. OpenRouter and Groq send the résumé excerpt and visible profile information to their APIs when you generate a message.</p>
+          </div>
+        </div>
+
+        <div class="api-source-block">
+          <div class="api-source-heading">
+            <div>
+              <strong>Cloud API source</strong>
+              <span>Applies to Groq and OpenRouter. Ollama remains local.</span>
+            </div>
+            <span id="manualApiDetected" class="api-detected-pill">Official keys</span>
+          </div>
+          <div id="apiModeControl" class="api-mode-control" role="radiogroup" aria-label="Cloud API source">
+            <label>
+              <input type="radio" name="apiAccessMode" value="official">
+              <span><strong>Official API</strong><small>Use IceBreaker’s rotating key pool</small></span>
+            </label>
+            <label>
+              <input type="radio" name="apiAccessMode" value="manual">
+              <span><strong>Manual API</strong><small>Use your own Groq or OpenRouter key</small></span>
+            </label>
+          </div>
+          <div id="manualApiSettings" class="manual-api-settings hidden">
+            <label class="field-label" for="manualApiKey">Your API key</label>
+            <div class="password-row">
+              <input id="manualApiKey" type="password" autocomplete="off" placeholder="gsk_… or sk-or-v1-…">
+              <button class="reveal-button" type="button" data-target="manualApiKey">Show</button>
+            </div>
+            <p class="field-help">IceBreaker detects Groq from <code>gsk_</code> and OpenRouter from <code>sk-or-</code>, then shows the matching official logo in the side panel.</p>
+          </div>
+        </div>
+
+        <div id="providerCards" class="provider-cards">
+          <label class="provider-card">
+            <input type="radio" name="provider" value="ollama">
+            <span class="provider-logo local"><img src="../../../assets/providers/provider-ollama.png" alt=""></span>
+            <span><strong>Ollama</strong><small>Private local model</small></span>
+          </label>
+          <label class="provider-card">
+            <input type="radio" name="provider" value="openrouter">
+            <span class="provider-logo openrouter"><img src="../../../assets/providers/provider-openrouter.png" alt=""></span>
+            <span><strong>OpenRouter</strong><small>Official or manual API</small></span>
+          </label>
+          <label class="provider-card">
+            <input type="radio" name="provider" value="groq">
+            <span class="provider-logo"><img src="../../../assets/providers/provider-groq.svg" alt=""></span>
+            <span><strong>Groq</strong><small>Official or manual API</small></span>
+          </label>
+        </div>
+
+        <div id="ollamaSettings" class="provider-settings">
+          <div class="profile-grid">
+            <div>
+              <label class="field-label" for="ollamaEndpoint">Ollama endpoint</label>
+              <input id="ollamaEndpoint" type="url" placeholder="http://127.0.0.1:11434">
+            </div>
+            <div>
+              <label class="field-label" for="ollamaModel">Model name</label>
+              <div class="input-action-row">
+                <select id="ollamaModel" class="model-field" aria-label="Installed Ollama model">
+                  <option value="">Detecting installed models…</option>
+                </select>
+                <button id="loadOllamaModels" class="outline-button" type="button">Refresh models</button>
+              </div>
+            </div>
+          </div>
+          <p class="field-help">Ollama must be running and the selected model must already be installed.</p>
+          <div class="provider-notice"><strong>One-time Windows setup:</strong> Double-click <code>Enable-Ollama-for-IceBreaker.bat</code>. It permanently allows Chrome-extension access, restarts Ollama, and adds a Windows Startup fallback.</div>
+        </div>
+
+        <div id="openrouterSettings" class="provider-settings hidden">
+          <input id="openRouterApiKey" type="hidden">
+          <label class="field-label" for="openRouterModel">OpenRouter model ID</label>
+          <input id="openRouterModel" class="model-field" type="text" placeholder="openrouter/free">
+        </div>
+
+        <div id="groqSettings" class="provider-settings hidden">
+          <input id="groqApiKey" type="hidden">
+          <label class="field-label" for="groqModel">Groq model ID</label>
+          <input id="groqModel" class="model-field" type="text" placeholder="llama-3.1-8b-instant">
+        </div>
+
+        <div class="test-row">
+          <button id="testProviderButton" class="outline-button" type="button">Test connection</button>
+          <span id="providerTestStatus"></span>
+        </div>
+      </section>
+
+      <section id="preferences" class="section-card">
+        <div class="section-heading">
+          <div>
+            <span class="eyebrow">Defaults</span>
+            <h2>Message preferences</h2>
+            <p>You can still change tone and length from the LinkedIn side panel for every profile.</p>
+          </div>
+        </div>
+
+        <div class="profile-grid">
+          <div>
+            <label class="field-label" for="defaultTone">Default tone</label>
+            <select id="defaultTone">
+              <option value="professional">Professional</option>
+              <option value="neutral">Neutral</option>
+              <option value="engaging">Engaging</option>
+            </select>
+          </div>
+          <div>
+            <label class="field-label" for="defaultLength">Default length</label>
+            <select id="defaultLength">
+              <option value="short">Short</option>
+              <option value="medium">Medium</option>
+              <option value="long">Long</option>
+            </select>
+          </div>
+        </div>
+
+        <label class="switch-row">
+          <span>
+            <strong>Generate automatically after hover</strong>
+            <small>Works while the IceBreaker side panel is open and stops when you close it.</small>
+          </span>
+          <input id="autoGenerate" type="checkbox" checked>
+          <span class="switch"></span>
+        </label>
+
+        <div class="shortcut-setting-row">
+          <span>
+            <strong>Copy generated text</strong>
+            <small>Copies the current editable IceBreaker draft without generating another version.</small>
+          </span>
+          <kbd id="shortcutKey">Alt+C</kbd>
+        </div>
+        <div class="shortcut-setting-row">
+          <span>
+            <strong>Generate a new version</strong>
+            <small>Reads the active LinkedIn context and creates a fresh DM, comment, or reply.</small>
+          </span>
+          <kbd id="regenerateShortcutKey">Alt+G</kbd>
+        </div>
+
+        <p class="field-help shortcut-help">Change it anytime from <code>chrome://extensions/shortcuts</code>.</p>
+
+        <div class="range-row">
+          <div>
+            <strong>Minimum résumé match</strong>
+            <small>Below this score, IceBreaker warns you instead of generating automatically.</small>
+          </div>
+          <div class="range-control">
+            <input id="matchThreshold" type="range" min="0" max="100" step="5">
+            <output id="matchThresholdValue">45%</output>
+          </div>
+        </div>
+      </section>
+
+      <section id="autopilot" class="section-card autopilot-page-card">
+        <div class="section-heading autopilot-page-heading">
+          <div>
+            <span class="eyebrow">Same-page assisted outreach</span>
+            <h2>Connections Autopilot</h2>
+            <p>IceBreaker scans visible LinkedIn connection cards, checks each card against your selected matching rules, generates a personalised DM, opens the correct Message composer, pastes the text, attaches your saved résumé, verifies the draft, and moves forward.</p>
+          </div>
+          <span id="apPageStatusPill" class="status-pill">Stopped</span>
+        </div>
+
+        <div class="ap-safety-banner">
+          <strong>One final review remains yours</strong>
+          <span>Autopilot prepares each message in the visible LinkedIn composer and never clicks Send. Review the verified recipient, message, and attachment before sending.</span>
+        </div>
+
+        <div class="ap-page-grid">
+          <article class="ap-panel">
+            <div class="ap-panel-head">
+              <div><span class="eyebrow">Run setup</span><h3>Message target and fast processing</h3></div>
+            </div>
+
+            <div class="profile-grid">
+              <div>
+                <label class="field-label" for="apDraftLimit">Successful messages to prepare</label>
+                <input id="apDraftLimit" type="number" min="1" max="20" value="5">
+                <p class="field-help">This target counts only messages successfully pasted into the correct visible LinkedIn composer. Checked, rejected, skipped, and failed profiles do not consume it.</p>
+              </div>
+              <div>
+                <label class="field-label" for="apTimeSpan">Processing mode</label>
+                <select id="apTimeSpan" disabled>
+                  <option value="5">Fast — no artificial draft delay</option>
+                </select>
+                <p class="field-help">Autopilot now moves forward as soon as LinkedIn confirms the message and résumé attachment.</p>
+              </div>
+            </div>
+
+            <div class="field-block">
+              <label class="field-label" for="apDesiredRoles">Role you are applying for</label>
+              <input id="apDesiredRoles" type="text" placeholder="AI Engineer" value="AI Engineer">
+              <p class="field-help">This role guides the message. It is not used to decide which LinkedIn contacts qualify.</p>
+            </div>
+
+            <div class="field-block">
+              <label class="field-label" for="apSelectionMode">Who should Autopilot prepare drafts for?</label>
+              <select id="apSelectionMode">
+                <option value="all_connections">Every visible connection that passes my filters</option>
+                <option value="hiring_contacts">Recruiters and hiring decision-makers only</option>
+                <option value="custom_titles">Only my custom titles or phrases</option>
+              </select>
+              <p class="field-help">The default drafts every visible 1st-degree connection. Company, location, and exclusion filters are still applied before opening a message.</p>
+            </div>
+
+            <div class="field-block">
+              <span class="field-label">Hiring-contact mode recognises</span>
+              <div class="ap-fixed-targets" aria-label="Fixed Autopilot contact categories">
+                <span>Recruiters</span><span>Technical Recruiters</span><span>Talent Acquisition</span><span>HR / People</span>
+                <span>Hiring Managers</span><span>Founders / Executives</span><span>Engineering Managers</span><span>Team / Technical Leads</span>
+                <span>Directors / VPs / Department Heads</span><span>People actively hiring</span>
+              </div>
+              <p class="field-help">Related titles such as People &amp; Culture, Head of Engineering, Department Head, Director, VP, General Manager, Tech Lead, Talent Partner, and Co-Founder are included automatically.</p>
+            </div>
+
+            <div class="profile-grid">
+              <div>
+                <label class="field-label" for="apIncludeTitles">Extra qualifying titles or phrases</label>
+                <input id="apIncludeTitles" type="text" placeholder="Product Director, Delivery Manager, building my team">
+                <p class="field-help">Used as extra matches in hiring-contact mode, or as the required list in custom-title mode.</p>
+              </div>
+              <div>
+                <label class="field-label" for="apExcludeKeywords">Exclude titles or phrases</label>
+                <input id="apExcludeKeywords" type="text" placeholder="Student, Intern, Job seeker, Agency owner">
+                <p class="field-help">Any matching profile is skipped before a composer opens.</p>
+              </div>
+            </div>
+
+            <div class="profile-grid">
+              <div>
+                <label class="field-label" for="apCompanyKeywords">Target companies</label>
+                <input id="apCompanyKeywords" type="text" placeholder="Optional: Systems Limited, Arbisoft">
+                <p class="field-help">Leave blank to allow every company.</p>
+              </div>
+              <div>
+                <label class="field-label" for="apLocationKeywords">Target locations</label>
+                <input id="apLocationKeywords" type="text" placeholder="Optional: Pakistan, Remote, Lahore">
+                <p class="field-help">Leave blank to allow every location.</p>
+              </div>
+            </div>
+
+            <div class="profile-grid">
+              <div>
+                <label class="field-label" for="apMinMatchScore">Minimum contact confidence</label>
+                <select id="apMinMatchScore">
+                  <option value="35">Flexible — any visible card match</option>
+                  <option value="65">Balanced — description or headline</option>
+                  <option value="100">Strict — headline match only</option>
+                </select>
+              </div>
+              <div>
+                <label class="field-label" for="apMaxPerCompany">Maximum drafts per company</label>
+                <input id="apMaxPerCompany" type="number" min="1" max="10" value="2">
+              </div>
+            </div>
+
+            <div class="profile-grid">
+              <div>
+                <label class="field-label" for="apConsecutiveErrorLimit">Stop after consecutive errors</label>
+                <input id="apConsecutiveErrorLimit" type="number" min="1" max="10" value="3">
+                <p class="field-help">Prevents repeated failures from continuing across the page.</p>
+              </div>
+            </div>
+
+            <div class="profile-grid">
+              <div>
+                <label class="field-label" for="apVibe">Default vibe</label>
+                <select id="apVibe">
+                  <option value="professional">Professional</option>
+                  <option value="neutral">Neutral</option>
+                  <option value="engaging">Engaging</option>
+                </select>
+              </div>
+              <div>
+                <label class="field-label" for="apLength">Draft length</label>
+                <select id="apLength">
+                  <option value="short">Short</option>
+                  <option value="medium">Medium</option>
+                  <option value="long">Long</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="ap-check-row">
+              <label><input id="apConnectionsOnly" type="checkbox" checked><span>Only process 1st-degree LinkedIn connections</span></label>
+              <label><input id="apSkipDuplicates" type="checkbox" checked><span>Skip profiles already checked in this run</span></label>
+              <label><input id="apSkipPreviouslyChecked" type="checkbox" checked><span>Remember and skip every profile checked in earlier runs</span></label>
+              <label><input id="apSkipPreviouslyDrafted" type="checkbox" checked><span>Skip people already saved by Autopilot in an earlier run</span></label>
+              <label><input id="apSkipExistingDraft" type="checkbox" checked><span>Never overwrite text already present in a message box</span></label>
+              <label><input id="apSkipExistingConversation" type="checkbox"><span>Skip people who already have a LinkedIn conversation</span></label>
+              <label><input id="apMinimiseComposer" type="checkbox" checked disabled><span>Minimise each composer after saving so Autopilot can move forward quickly</span></label>
+              <label><input id="apStopRecipient" type="checkbox" checked><span>Stop immediately if recipient verification fails</span></label>
+              <label><input id="apStopProvider" type="checkbox" checked disabled><span>Automatically retry cloud AI and use a local personalised draft if needed</span></label>
+            </div>
+
+            <div class="ap-panel-actions">
+              <span id="apSettingsSaveStatus">Settings and the AI Resume stay in this Chrome profile.</span>
+              <button id="apSaveSettings" class="primary-button" type="button">Save Autopilot settings</button>
+            </div>
+          </article>
+
+          <article class="ap-panel ap-run-panel">
+            <div class="ap-panel-head">
+              <div><span class="eyebrow">Current run</span><h3 id="apRunTitle">Autopilot stopped</h3></div>
+              <code id="apLastErrorCode" class="ap-error-code hidden">—</code>
+            </div>
+            <p id="apRunAction" class="ap-run-action">Open LinkedIn My Network → Connections or a People search filtered to 1st-degree connections, hover the connection where you want to begin and press Alt+S, or start from the side panel.</p>
+            <div class="ap-progress-track"><span id="apProgressBar"></span></div>
+            <div class="ap-stat-grid">
+              <div><strong id="apDraftCount">0</strong><span>Prepared messages</span></div>
+              <div><strong id="apQueueCount">0</strong><span>Message target</span></div>
+              <div><strong id="apCheckedCount">0</strong><span>Checked</span></div>
+              <div><strong id="apMatchedCount">0</strong><span>Matched</span></div>
+              <div><strong id="apSkippedCount">0</strong><span>Skipped</span></div>
+              <div><strong id="apErrorCount">0</strong><span>Errors</span></div>
+            </div>
+            <div id="apLastErrorBox" class="ap-last-error hidden">
+              <strong>Last diagnostic</strong>
+              <span id="apLastErrorText"></span>
+            </div>
+          </article>
+        </div>
+
+        <div class="ap-resume-heading">
+          <div>
+            <span class="eyebrow">Required attachment</span>
+            <h3>AI Resume</h3>
+            <p>Upload the single résumé Autopilot should attach to every verified message.</p>
+          </div>
+          <span id="apResumeCount" class="status-pill">Missing</span>
+        </div>
+        <div id="apResumeProfiles" class="ap-resume-grid ap-single-resume"></div>
+
+        <div class="ap-data-heading">
+          <div><span class="eyebrow">Review queue</span><h3>Prepared messages</h3></div>
+          <button id="apClearDrafts" class="outline-button danger-outline" type="button">Clear prepared messages</button>
+        </div>
+        <div id="apDraftList" class="ap-draft-list"></div>
+
+        <div class="ap-data-heading ap-log-heading">
+          <div><span class="eyebrow">Autopilot memory</span><h3>Previously checked profiles</h3><p id="apMemorySummary" class="field-help">No saved profile memory yet.</p></div>
+          <button id="apClearMemory" class="outline-button danger-outline" type="button">Clear profile memory</button>
+        </div>
+
+        <div class="ap-data-heading ap-log-heading">
+          <div><span class="eyebrow">Diagnostics</span><h3>Activity and error codes</h3></div>
+          <button id="apClearLogs" class="outline-button" type="button">Clear activity</button>
+        </div>
+        <div id="apActivityList" class="ap-activity-list"></div>
+
+        <div class="ap-data-heading ap-code-heading">
+          <div><span class="eyebrow">Reference</span><h3>Autopilot diagnostic codes</h3></div>
+        </div>
+        <p class="ap-code-help">Skip codes explain why a profile was not drafted. Error codes identify the exact stage that failed.</p>
+        <div id="apDiagnosticReference" class="ap-code-reference"></div>
+      </section>
+
+      <section id="privacy" class="section-card privacy-card">
+        <span class="eyebrow">Privacy and control</span>
+        <h2>Designed for manual, responsible outreach</h2>
+        <div class="privacy-grid">
+          <div><strong>Visible information only</strong><span>The content script reads only the LinkedIn text currently visible in your browser.</span></div>
+          <div><strong>Human-confirmed sending</strong><span>IceBreaker opens the verified same-page composer, inserts the message, and attaches the résumé. You confirm the final Send action.</span></div>
+          <div><strong>Local extension storage</strong><span>Your original résumé file, hidden extracted résumé context, structured profile, imported LinkedIn/GitHub/portfolio context, and manual API key stay in this Chrome profile. LinkedIn posts are excluded. Manual keys are not encrypted.</span></div>
+          <div><strong>You review every message</strong><span>Prepared messages remain under your control. Confirm the correct recipient, text, and attachment before sending.</span></div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <div class="savebar">
+    <span id="saveStatus">Changes are saved only when you press Save.</span>
+    <button id="saveButton" class="primary-button" type="button">Save IceBreaker settings</button>
+  </div>
+
+  <script src="../../shared/resume-parsers.js"></script>
+  <script src="../../shared/resume-store.js"></script>
+  <script src="./options.js"></script>
+  <script src="./autopilot-settings.js"></script>
+</body>
+</html>

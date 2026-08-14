@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IceBreaker</title>
+  <link rel="stylesheet" href="./sidepanel.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand-wrap">
+      <div class="brand-mark">
+        <img src="../../../assets/icons/icon48.png" alt="IceBreaker">
+      </div>
+      <div class="brand-copy">
+        <div class="brand-name">IceBreaker</div>
+        <div class="brand-slogan">Your Wingman for LinkedIn</div>
+      </div>
+    </div>
+
+    <div class="header-actions">
+      <div class="status-pill" aria-live="polite" title="IceBreaker status">
+        <span id="statusDot" class="status-dot"></span>
+        <span id="statusText">HOVER</span>
+      </div>
+    </div>
+  </header>
+
+  <div class="fixed-controls" aria-label="Fixed generation controls">
+    <nav class="top-navbar" aria-label="IceBreaker controls">
+      <section class="mode-card compact-dropdown" aria-label="Generation mode">
+        <span class="nav-field-label">Mode</span>
+        <div id="modeControl" class="mode-control" role="group" aria-label="Generation mode">
+          <button type="button" data-value="dms" title="DMs — create outreach messages from LinkedIn profiles">
+            <span class="mode-icon mode-icon-blue"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v12H7l-3 3V4Zm2 2v8.17L6.17 14H18V6H6Z"/></svg></span>
+            <span>DMs</span>
+          </button>
+          <button type="button" data-value="comments" title="Comments — create comments from LinkedIn posts">
+            <span class="mode-icon mode-icon-purple"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 2H4a2 2 0 0 0-2 2v18l4-4h14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2ZM6 9h12v2H6V9Zm8 5H6v-2h8v2Zm4-6H6V6h12v2Z"/></svg></span>
+            <span>Comments</span>
+          </button>
+          <button type="button" data-value="conversation" title="Conversation — reply using recent LinkedIn inbox messages">
+            <span class="mode-icon mode-icon-cyan"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3C6.49 3 2 6.59 2 11c0 2.03.97 3.88 2.56 5.29L4 21l4.36-2.18c1.13.38 2.36.58 3.64.58 5.51 0 10-3.59 10-8.4S17.51 3 12 3Zm-4 9H6v-2h2v2Zm5 0h-2v-2h2v2Zm5 0h-2v-2h2v2Z"/></svg></span>
+            <span>Conversation</span>
+          </button>
+        </div>
+      </section>
+
+      <section class="engine-card compact-dropdown" aria-label="AI provider and model">
+        <span class="nav-field-label">Provider</span>
+        <div id="providerControl" class="provider-control" role="group" aria-label="AI provider">
+          <button type="button" data-provider="groq" title="Use Groq">
+            <span class="provider-logo groq-logo" aria-hidden="true"><img src="../../../assets/providers/provider-groq.svg" alt=""></span>
+            <span>Groq</span>
+          </button>
+          <button type="button" data-provider="ollama" title="Use Ollama">
+            <span class="provider-logo ollama-logo" aria-hidden="true"><img src="../../../assets/providers/provider-ollama.png" alt=""></span>
+            <span>Ollama</span>
+          </button>
+          <button type="button" data-provider="openrouter" title="Use OpenRouter">
+            <span class="provider-logo openrouter-logo" aria-hidden="true"><img src="../../../assets/providers/provider-openrouter.png" alt=""></span>
+            <span>OpenRouter</span>
+          </button>
+          <button id="userApiProviderButton" class="user-api-provider" type="button" data-provider="userapi" title="Use your saved API key">
+            <span id="userApiProviderLogo" class="provider-logo" aria-hidden="true"><img id="userApiProviderIcon" src="../../../assets/providers/provider-groq.svg" alt=""></span>
+            <span id="userApiProviderLabel">My API</span>
+          </button>
+        </div>
+
+        <select id="providerSelect" class="visually-hidden" tabindex="-1" aria-hidden="true">
+          <option value="groq">Groq</option>
+          <option value="ollama">Ollama</option>
+          <option value="openrouter">OpenRouter</option>
+        </select>
+
+        <span id="engineStatus" class="visually-hidden" aria-live="polite">READY</span>
+        <span id="providerBadge" class="visually-hidden">Ollama</span>
+        <button id="openProviderSettings" class="hidden" type="button" tabindex="-1">Settings</button>
+        <button id="copyOllamaFixButton" class="utility-hidden hidden" type="button" tabindex="-1">Copy setup</button>
+      </section>
+
+      <section id="autopilotCard" class="autopilot-card" aria-label="IceBreaker Autopilot">
+        <div class="autopilot-summary">
+          <div class="autopilot-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M12 2 9.8 7.2 4 8l4.2 4-1 5.8L12 15l4.8 2.8-1-5.8L20 8l-5.8-.8L12 2Zm-7 15-3 1.2L5 20l1.2 3L8 20l3-1.8L8 17l-1.8-3L5 17Zm14-3-1.3 2.7L15 18l2.7 1.3L19 22l1.3-2.7L23 18l-2.7-1.3L19 14Z"/></svg>
+          </div>
+          <div class="autopilot-copy">
+            <div class="autopilot-title-row">
+              <strong>Autopilot</strong>
+              <span id="autopilotStatus" class="autopilot-status">Stopped</span>
+            </div>
+            <p id="autopilotSupporting">Hover the connection where scanning should begin and press Alt+S.</p>
+          </div>
+        </div>
+
+        <div class="autopilot-actions">
+          <button id="autopilotStartButton" class="autopilot-primary" type="button" title="Start Autopilot">Start</button>
+          <button id="autopilotPauseButton" class="autopilot-secondary hidden" type="button">Pause</button>
+          <button id="autopilotStopButton" class="autopilot-danger hidden" type="button">Stop</button>
+          <button id="autopilotSettingsButton" class="autopilot-secondary autopilot-settings-button" type="button" title="Open Autopilot drafts and settings">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.4 13a7.8 7.8 0 0 0 .05-1 7.8 7.8 0 0 0-.05-1l2.1-1.65-2-3.46-2.5 1a8 8 0 0 0-1.73-1L14.9 3h-4l-.38 2.9a8 8 0 0 0-1.73 1l-2.5-1-2 3.46L6.4 11a7.8 7.8 0 0 0-.05 1 7.8 7.8 0 0 0 .05 1l-2.1 1.65 2 3.46 2.5-1a8 8 0 0 0 1.73 1l.38 2.9h4l.38-2.9a8 8 0 0 0 1.73-1l2.5 1 2-3.46L19.4 13ZM13 15.5A3.5 3.5 0 1 1 13 8a3.5 3.5 0 0 1 0 7.5Z"/></svg>
+            <span>Drafts &amp; Settings</span>
+          </button>
+        </div>
+
+        <div id="autopilotProgress" class="autopilot-progress hidden">
+          <div class="autopilot-current">
+            <strong id="autopilotCurrentProfile">Waiting for a profile</strong>
+            <span id="autopilotCurrentTitle"></span>
+            <span id="autopilotCurrentAction">Ready</span>
+            <code id="autopilotErrorCode" class="autopilot-inline-error hidden">—</code>
+          </div>
+          <div class="autopilot-meter"><span id="autopilotProgressBar"></span></div>
+          <div class="autopilot-stats">
+            <span title="Prepared messages"><strong id="autopilotDrafts">0</strong> drafts</span>
+            <span title="Profiles checked"><strong id="autopilotChecked">0</strong> checked</span>
+            <span title="Profiles matched"><strong id="autopilotMatched">0</strong> matched</span>
+            <span title="Profiles skipped"><strong id="autopilotSkipped">0</strong> skipped</span>
+            <span title="Errors"><strong id="autopilotErrors">0</strong> errors</span>
+          </div>
+        </div>
+      </section>
+
+      <button id="settingsButton" class="icon-button settings-button" type="button" title="Open settings" aria-label="Open settings">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.4 13a7.8 7.8 0 0 0 .05-1 7.8 7.8 0 0 0-.05-1l2.1-1.65-2-3.46-2.5 1a8 8 0 0 0-1.73-1L14.9 3h-4l-.38 2.9a8 8 0 0 0-1.73 1l-2.5-1-2 3.46L6.4 11a7.8 7.8 0 0 0-.05 1 7.8 7.8 0 0 0 .05 1l-2.1 1.65 2 3.46 2.5-1a8 8 0 0 0 1.73 1l.38 2.9h4l.38-2.9a8 8 0 0 0 1.73-1l2.5 1 2-3.46L19.4 13ZM13 15.5A3.5 3.5 0 1 1 13 8a3.5 3.5 0 0 1 0 7.5Z"/></svg>
+      </button>
+    </nav>
+
+    <div class="model-row">
+      <label class="model-field" for="modelSelect" title="Selected AI model">
+        <span class="model-field-icon" aria-hidden="true"><img id="modelProviderIcon" src="../../../assets/providers/provider-ollama.png" alt=""></span>
+        <select id="modelSelect" class="model-select" aria-label="AI model" title="Selected AI model">
+          <option value="">Loading models…</option>
+        </select>
+      </label>
+      <button id="reloadModelsButton" class="icon-button model-action" type="button" title="Reload models" aria-label="Reload models">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.65 6.35A8 8 0 1 0 20 12h-2a6 6 0 1 1-1.76-4.24L13 11h8V3l-3.35 3.35Z"/></svg>
+      </button>
+      <button id="testEngineButton" class="icon-button model-action model-action-test" type="button" title="Test connection" aria-label="Test connection">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9.55 18.2-5.7-5.7 2.1-2.1 3.6 3.6 8.5-8.5 2.1 2.1-10.6 10.6Z"/></svg>
+      </button>
+    </div>
+
+    <section class="style-card fixed-style" aria-label="Message vibe and length">
+      <div class="style-control-row vibe-row">
+        <span class="control-label">Vibe</span>
+        <div id="toneControl" class="segmented-control" role="group" aria-label="Message vibe">
+          <button type="button" data-value="professional" title="Professional vibe">Professional</button>
+          <button type="button" data-value="neutral" title="Neutral vibe">Neutral</button>
+          <button type="button" data-value="engaging" title="Engaging vibe">Engaging</button>
+        </div>
+      </div>
+      <div class="style-control-row length-row">
+        <span class="control-label">Length</span>
+        <div id="lengthControl" class="segmented-control" role="group" aria-label="Message length">
+          <button type="button" data-value="short" title="Short — 10–15 words">Short</button>
+          <button type="button" data-value="medium" title="Medium — 20–30 words">Medium</button>
+          <button type="button" data-value="long" title="Long — 40–80 words">Long</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <main id="panelScroll">
+    <section id="resumeNotice" class="resume-notice hidden">
+      <div class="resume-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M6 2h8l4 4v16H6V2Zm8 2.5V7h2.5L14 4.5ZM8 11h8V9H8v2Zm0 4h8v-2H8v2Zm0 4h6v-2H8v2Z"/></svg>
+      </div>
+      <div class="resume-copy">
+        <strong>Add your résumé for personalised DMs</strong>
+      </div>
+      <button id="openResumeSettings" class="mini-link-button" type="button">Add</button>
+    </section>
+
+    <section id="emptyState" class="context-card empty-context">
+      <div class="empty-orbit" aria-hidden="true">
+        <span></span><span></span><span></span>
+        <img src="../../../assets/icons/icon128.png" alt="">
+      </div>
+      <div class="empty-copy">
+        <strong id="emptyTitle">Hover a LinkedIn profile</strong>
+        <p id="emptyDescription">IceBreaker will read the visible context and prepare editable text.</p>
+      </div>
+      <button id="captureCurrentButtonEmpty" class="compact-action" type="button">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h5V2H2v7h2V4Zm11-2v2h5v5h2V2h-7ZM4 15H2v7h7v-2H4v-5Zm16 5h-5v2h7v-7h-2v5ZM7 7h10v10H7V7Zm2 2v6h6V9H9Z"/></svg>
+        <span id="captureEmptyLabel">Read current page</span>
+      </button>
+      <span class="shortcut-hint">
+        <span><kbd id="shortcutKey">Alt+C</kbd><span id="shortcutDescription">copy text</span></span>
+        <span><kbd id="regenerateShortcutKey">Alt+G</kbd><span>new version</span></span>
+      </span>
+    </section>
+
+    <section id="workspace" class="workspace hidden">
+      <article class="context-card">
+        <div class="context-header">
+          <div id="profileInitials" class="profile-initials">IB</div>
+          <div class="context-title">
+            <span id="contextSubjectLabel" class="context-subject-label">Profile</span>
+            <div class="name-line">
+              <a id="profileName" href="#" target="_blank" rel="noreferrer">LinkedIn user</a>
+              <span id="matchChip" class="match-chip hidden">—</span>
+            </div>
+            <a id="profileMeta" class="identity-link" href="#" target="_blank" rel="noreferrer">linkedin.com</a>
+          </div>
+          <button id="captureCurrentButton" class="icon-button capture-button" type="button" title="Read current LinkedIn page" aria-label="Read current LinkedIn page">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h5V2H2v7h2V4Zm11-2v2h5v5h2V2h-7ZM4 15H2v7h7v-2H4v-5Zm16 5h-5v2h7v-7h-2v5ZM7 7h10v10H7V7Zm2 2v6h6V9H9Z"/></svg>
+          </button>
+          <span id="captureButtonLabel" class="visually-hidden">Read page</span>
+        </div>
+
+        <div class="context-facts">
+          <div id="headlineFact" class="context-fact context-fact-wide">
+            <span id="headlineLabel">Role</span>
+            <strong id="profileHeadline">Not available</strong>
+          </div>
+          <div id="companyFact" class="context-fact">
+            <span id="companyLabel">Company</span>
+            <strong id="contextCompany">Not available</strong>
+          </div>
+          <div id="locationFact" class="context-fact">
+            <span id="locationLabel">Location</span>
+            <strong id="contextLocation">Not available</strong>
+          </div>
+        </div>
+
+        <div class="recent-context">
+          <div class="recent-context-header">
+            <span id="recentContextLabel">Recent context</span>
+            <span id="contextCount" class="context-count"></span>
+          </div>
+          <div id="contextBody" class="context-body">No recent context captured.</div>
+          <div id="contextSecondaryBody" class="context-secondary-body hidden"></div>
+          <div class="context-footer">
+            <span class="context-ready-indicator"><span aria-hidden="true"></span>Context ready</span>
+            <button id="contextToggleButton" class="context-toggle hidden" type="button" aria-expanded="false">Show more</button>
+          </div>
+        </div>
+      </article>
+
+      <details id="matchPanel" class="utility-hidden hidden">
+        <summary><span id="matchPanelLabel">Profile match</span><strong id="matchScore">—</strong></summary>
+        <div class="match-meter"><span id="matchBar"></span></div>
+        <p id="matchReasons"></p>
+      </details>
+    </section>
+  </main>
+
+  <section id="pinnedDraft" class="pinned-draft hidden" aria-label="Editable generated text">
+    <div class="pinned-draft-head">
+      <div class="draft-title-wrap">
+        <span class="draft-spark" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="m12 2 1.5 5.1L18 9l-4.5 1.9L12 16l-1.5-5.1L6 9l4.5-1.9L12 2Zm7 12 .9 3.1L23 18l-3.1.9L19 23l-.9-3.1L15 19l3.1-.9L19 14ZM5 13l.8 2.2L8 16l-2.2.8L5 19l-.8-2.2L2 16l2.2-.8L5 13Z"/></svg>
+        </span>
+        <div class="draft-labels">
+          <strong id="draftTitle">Message</strong>
+        </div>
+        <span id="draftEyebrow" class="visually-hidden">Editable before copying</span>
+      </div>
+    </div>
+
+    <div id="draftLoading" class="draft-loading hidden" aria-label="Generating text">
+      <span></span><span></span><span></span>
+      <em>Working</em>
+    </div>
+
+    <textarea id="messageEditor" aria-label="Generated text" placeholder="Your generated text will appear here and remain editable."></textarea>
+    <div id="lowMatchActions" class="low-match-actions hidden">Review this lower-match draft before using it.</div>
+  </section>
+
+  <div class="action-dock" role="group" aria-label="Text actions">
+    <button id="refreshButton" class="refresh-button primary-action" type="button" title="Create a new version (Alt+G)" aria-label="Create a new version">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 7.75 10h-2.1A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h8V3l-3.35 3.35Z"/></svg>
+      <span>Generate</span>
+    </button>
+    <button id="copyButton" class="copy-button secondary-action" type="button" title="Copy generated text (Alt+C)" aria-label="Copy generated text" disabled>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 1H5a2 2 0 0 0-2 2v13h2V3h11V1Zm3 4H9a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2Zm0 16H9V7h10v14Z"/></svg>
+      <span id="copyButtonLabel">Copy</span>
+    </button>
+    <button id="stopRefreshButton" class="stop-refresh-button icon-only-action" type="button" title="Stop current work and reset the draft" aria-label="Stop current work and refresh the panel">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h10v10H7V7Zm10.65-3.65L16.2 4.8A8 8 0 0 0 4.7 7H2V2h2v3.05A10 10 0 0 1 17.65 3.35ZM6.35 20.65 7.8 19.2A8 8 0 0 0 19.3 17H22v5h-2v-3.05A10 10 0 0 1 6.35 20.65Z"/></svg>
+      <span id="stopRefreshButtonLabel" class="visually-hidden">Stop &amp; Refresh</span>
+    </button>
+  </div>
+
+  <script src="./sidepanel.js"></script>
+</body>
+</html>

@@ -11,7 +11,7 @@
   ];
 
   const DEFAULTS = {
-    selectionMode: "hiring_contacts",
+    selectionMode: "all_connections",
     targetTags: FIXED_TARGETS,
     targetTitles: [],
     includeTitleKeywords: [],
@@ -21,7 +21,6 @@
     desiredRoles: ["AI Engineer"],
     exactTitleOnly: false,
     draftLimit: 5,
-    dailyActionLimit: 45,
     timeSpanMinutes: 5,
     minMatchScore: 65,
     maxDraftsPerCompany: 2,
@@ -32,7 +31,7 @@
     skipExistingDraft: true,
     skipExistingConversation: false,
     safeAssistMode: false,
-    attachResume: false,
+    attachResume: true,
     skipDuplicates: true,
     stopOnProviderFailure: false,
     stopOnRecipientFailure: true,
@@ -46,7 +45,7 @@
     statusPill: document.getElementById("apPageStatusPill"),
     selectionMode: document.getElementById("apSelectionMode"),
     draftLimit: document.getElementById("apDraftLimit"),
-    dailyActionLimit: document.getElementById("apDailyActionLimit"),
+    timeSpan: document.getElementById("apTimeSpan"),
     desiredRoles: document.getElementById("apDesiredRoles"),
     includeTitles: document.getElementById("apIncludeTitles"),
     excludeKeywords: document.getElementById("apExcludeKeywords"),
@@ -60,7 +59,6 @@
     skipPreviouslyChecked: document.getElementById("apSkipPreviouslyChecked"),
     skipExistingDraft: document.getElementById("apSkipExistingDraft"),
     skipExistingConversation: document.getElementById("apSkipExistingConversation"),
-    attachResume: document.getElementById("apAttachResume"),
     vibe: document.getElementById("apVibe"),
     length: document.getElementById("apLength"),
     skipDuplicates: document.getElementById("apSkipDuplicates"),
@@ -71,9 +69,6 @@
     saveStatus: document.getElementById("apSettingsSaveStatus"),
     runTitle: document.getElementById("apRunTitle"),
     runAction: document.getElementById("apRunAction"),
-    runControl: document.getElementById("apRunControlButton"),
-    runStop: document.getElementById("apRunStopButton"),
-    dailyUsage: document.getElementById("apDailyUsage"),
     progressBar: document.getElementById("apProgressBar"),
     draftCount: document.getElementById("apDraftCount"),
     queueCount: document.getElementById("apQueueCount"),
@@ -102,7 +97,6 @@
   let aiResume = null;
   let drafts = [];
   let profileMemory = [];
-  let dailyUsage = { dateKey: "", prepared: 0 };
 
   initialise().catch((error) => setSaveStatus(error.message || "Could not load Autopilot settings.", true));
 
@@ -116,20 +110,12 @@
 
   function bindEvents() {
     el.saveSettings.addEventListener("click", saveSettings);
-    el.runControl.addEventListener("click", controlRun);
-    el.runStop.addEventListener("click", stopRun);
     el.clearDrafts.addEventListener("click", clearDrafts);
     el.clearLogs.addEventListener("click", clearActivity);
     el.clearMemory.addEventListener("click", clearProfileMemory);
-    document.querySelectorAll("[data-ap-tab]").forEach((button) => {
-      button.addEventListener("click", () => activateSettingsTab(button.dataset.apTab));
-    });
-    document.querySelectorAll("[data-ap-open-tab]").forEach((button) => {
-      button.addEventListener("click", () => activateSettingsTab(button.dataset.apOpenTab));
-    });
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area !== "local") return;
-      if (changes.autopilotSettings || changes.autopilotState || changes.autopilotResumeProfiles || changes.autopilotDrafts || changes.autopilotProfileMemory || changes.autopilotDailyUsage) {
+      if (changes.autopilotSettings || changes.autopilotState || changes.autopilotResumeProfiles || changes.autopilotDrafts || changes.autopilotProfileMemory) {
         void loadAll(false);
       }
     });
@@ -141,8 +127,7 @@
       "autopilotState",
       "autopilotResumeProfiles",
       "autopilotDrafts",
-      "autopilotProfileMemory",
-      "autopilotDailyUsage"
+      "autopilotProfileMemory"
     ]);
 
     settings = normalizeSettings(stored.autopilotSettings);
@@ -150,7 +135,6 @@
     aiResume = chooseStoredAiResume(stored.autopilotResumeProfiles);
     drafts = Array.isArray(stored.autopilotDrafts) ? stored.autopilotDrafts.slice(-200) : [];
     profileMemory = Array.isArray(stored.autopilotProfileMemory) ? stored.autopilotProfileMemory : [];
-    dailyUsage = normalizeDailyUsage(stored.autopilotDailyUsage);
 
     if (aiResume) {
       await chrome.storage.local.set({ autopilotResumeProfiles: [aiResume] });
@@ -163,71 +147,6 @@
     renderActivity();
     renderMemory();
     renderDiagnosticReference();
-    activateSettingsTab(document.querySelector("[data-ap-tab].active")?.dataset.apTab || "targeting");
-  }
-
-  function activateSettingsTab(tabName = "targeting") {
-    const allowed = ["targeting", "filters", "safety", "message"];
-    const selected = allowed.includes(tabName) ? tabName : "targeting";
-    document.querySelectorAll("[data-ap-tab]").forEach((button) => {
-      const active = button.dataset.apTab === selected;
-      button.classList.toggle("active", active);
-      button.setAttribute("aria-selected", String(active));
-    });
-    document.querySelectorAll("[data-ap-panel]").forEach((panel) => {
-      panel.classList.toggle("hidden", panel.dataset.apPanel !== selected);
-    });
-  }
-
-  function normalizeDailyUsage(value) {
-    const now = new Date();
-    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-    const source = value && typeof value === "object" && value.dateKey === today ? value : {};
-    return { dateKey: today, prepared: Math.max(0, Number(source.prepared || 0)) };
-  }
-
-  async function controlRun() {
-    const status = String(state.status || "stopped");
-    const type = status === "paused"
-      ? "RESUME_AUTOPILOT"
-      : ["starting", "running"].includes(status)
-        ? "PAUSE_AUTOPILOT"
-        : "START_AUTOPILOT";
-    const nextSettings = collectSettings();
-    if (type === "START_AUTOPILOT" && !nextSettings.desiredRoles.length) return setSaveStatus("Add the role you are applying for.", true);
-    if (type === "START_AUTOPILOT" && nextSettings.attachResume && (!aiResume?.base64 || !aiResume?.fileName)) {
-      activateSettingsTab("message");
-      return setSaveStatus("Upload a résumé file before enabling attachment.", true);
-    }
-    el.runControl.disabled = true;
-    setSaveStatus(type === "START_AUTOPILOT" ? "Starting Autopilot…" : type === "PAUSE_AUTOPILOT" ? "Pausing Autopilot…" : "Resuming Autopilot…");
-    try {
-      const response = await chrome.runtime.sendMessage({ type, ...(type === "START_AUTOPILOT" ? { settings: nextSettings } : {}) });
-      if (!response?.ok) throw new Error(response?.error || "Autopilot control failed.");
-      state = normalizeState(response.state);
-      if (type === "START_AUTOPILOT") settings = nextSettings;
-      renderRun();
-      setSaveStatus(type === "START_AUTOPILOT" ? "Autopilot started. Messages will remain unsent drafts." : type === "PAUSE_AUTOPILOT" ? "Autopilot paused." : "Autopilot resumed.");
-    } catch (error) {
-      setSaveStatus(error.message || "Autopilot control failed.", true);
-    } finally {
-      el.runControl.disabled = false;
-    }
-  }
-
-  async function stopRun() {
-    el.runStop.disabled = true;
-    try {
-      const response = await chrome.runtime.sendMessage({ type: "STOP_AUTOPILOT" });
-      if (!response?.ok) throw new Error(response?.error || "Autopilot could not be stopped.");
-      state = normalizeState(response.state);
-      renderRun();
-      setSaveStatus("Autopilot stopped. Existing drafts remain unsent for review.");
-    } catch (error) {
-      setSaveStatus(error.message || "Autopilot could not be stopped.", true);
-    } finally {
-      el.runStop.disabled = false;
-    }
   }
 
   function normalizeSettings(value) {
@@ -238,7 +157,7 @@
       ...source,
       selectionMode: ["all_connections", "hiring_contacts", "custom_titles"].includes(source.selectionMode)
         ? source.selectionMode
-        : DEFAULTS.selectionMode,
+        : "all_connections",
       targetTags: Array.isArray(source.targetTags) && source.targetTags.length ? uniqueList(source.targetTags) : [...FIXED_TARGETS],
       targetTitles: uniqueList(Array.isArray(source.targetTitles) ? source.targetTitles : splitList(source.targetTitles || "")),
       includeTitleKeywords: uniqueList(Array.isArray(source.includeTitleKeywords) ? source.includeTitleKeywords : splitList(source.includeTitles || "")),
@@ -247,7 +166,6 @@
       locationKeywords: uniqueList(Array.isArray(source.locationKeywords) ? source.locationKeywords : splitList(source.targetLocations || "")),
       desiredRoles: uniqueList(roles).slice(0, 3).length ? uniqueList(roles).slice(0, 3) : ["AI Engineer"],
       draftLimit: clamp(source.draftLimit || DEFAULTS.draftLimit, 1, 20),
-      dailyActionLimit: clamp(source.dailyActionLimit || DEFAULTS.dailyActionLimit, 1, 45),
       timeSpanMinutes: 5,
       minMatchScore: [35, 65, 100].includes(Number(source.minMatchScore)) ? Number(source.minMatchScore) : DEFAULTS.minMatchScore,
       maxDraftsPerCompany: clamp(source.maxDraftsPerCompany || DEFAULTS.maxDraftsPerCompany, 1, 10),
@@ -258,7 +176,7 @@
       skipExistingDraft: source.skipExistingDraft !== false,
       skipExistingConversation: source.skipExistingConversation === true,
       exactTitleOnly: false,
-      attachResume: source.attachResume === true,
+      attachResume: true,
       safeAssistMode: false,
       skipDuplicates: source.skipDuplicates !== false,
       stopOnProviderFailure: false,
@@ -274,10 +192,6 @@
     const source = value && typeof value === "object" ? value : {};
     return {
       status: source.status || "stopped",
-      runId: source.runId || "",
-      effectiveDraftLimit: Math.max(0, Number(source.effectiveDraftLimit || 0)),
-      dailyActionLimit: Math.max(0, Number(source.dailyActionLimit || 0)),
-      dailyPreparedBeforeRun: Math.max(0, Number(source.dailyPreparedBeforeRun || 0)),
       queueSize: Number(source.queueSize || 0),
       current: source.current || {},
       progress: source.progress || {},
@@ -319,7 +233,7 @@
   function populateSettingsForm() {
     if (el.selectionMode) el.selectionMode.value = settings.selectionMode;
     el.draftLimit.value = settings.draftLimit;
-    el.dailyActionLimit.value = settings.dailyActionLimit;
+    el.timeSpan.value = "5";
     el.desiredRoles.value = settings.desiredRoles[0] || "AI Engineer";
     el.includeTitles.value = settings.includeTitleKeywords.join(", ");
     el.excludeKeywords.value = settings.excludeKeywords.join(", ");
@@ -333,7 +247,6 @@
     el.skipPreviouslyChecked.checked = settings.skipPreviouslyChecked;
     el.skipExistingDraft.checked = settings.skipExistingDraft;
     el.skipExistingConversation.checked = settings.skipExistingConversation;
-    el.attachResume.checked = settings.attachResume;
     el.vibe.value = settings.vibe;
     el.length.value = settings.length;
     el.skipDuplicates.checked = settings.skipDuplicates;
@@ -344,14 +257,13 @@
 
   function collectSettings() {
     return normalizeSettings({
-      selectionMode: el.selectionMode?.value || "hiring_contacts",
+      selectionMode: el.selectionMode?.value || "all_connections",
       desiredRoles: splitList(el.desiredRoles.value),
       includeTitleKeywords: splitList(el.includeTitles.value),
       excludeKeywords: splitList(el.excludeKeywords.value),
       companyKeywords: splitList(el.companyKeywords.value),
       locationKeywords: splitList(el.locationKeywords.value),
       draftLimit: clamp(el.draftLimit.value, 1, 20),
-      dailyActionLimit: clamp(el.dailyActionLimit.value, 1, 45),
       timeSpanMinutes: 5,
       minMatchScore: Number(el.minMatchScore.value),
       maxDraftsPerCompany: clamp(el.maxPerCompany.value, 1, 10),
@@ -368,32 +280,30 @@
       highlightCurrentCard: true,
       vibe: el.vibe.value,
       length: el.length.value,
-      attachResume: el.attachResume.checked
+      attachResume: true
     });
   }
 
   async function saveSettings() {
     const next = collectSettings();
     if (!next.desiredRoles.length) return setSaveStatus("Add the role you are applying for.", true);
-    if (next.attachResume && (!aiResume?.base64 || !aiResume?.fileName)) return setSaveStatus("Upload a résumé file before enabling attachment.", true);
+    if (!aiResume?.base64 || !aiResume?.fileName) return setSaveStatus("Upload the AI Resume file before saving Autopilot settings.", true);
 
-    if (aiResume) {
-      aiResume = {
-        ...aiResume,
-        label: "AI Resume",
-        roleTitles: uniqueList([next.desiredRoles[0], "AI Engineer", "Machine Learning Engineer"]),
-        savedAt: new Date().toISOString()
-      };
-    }
+    aiResume = {
+      ...aiResume,
+      label: "AI Resume",
+      roleTitles: uniqueList([next.desiredRoles[0], "AI Engineer", "Machine Learning Engineer"]),
+      savedAt: new Date().toISOString()
+    };
 
     el.saveSettings.disabled = true;
     setSaveStatus("Saving Autopilot settings…");
     try {
-      if (aiResume) await chrome.storage.local.set({ autopilotResumeProfiles: [aiResume] });
+      await chrome.storage.local.set({ autopilotResumeProfiles: [aiResume] });
       const response = await chrome.runtime.sendMessage({ type: "SAVE_AUTOPILOT_SETTINGS", settings: next });
       if (!response?.ok) throw new Error(response?.error || "Could not save Autopilot settings.");
       settings = normalizeSettings(response.settings);
-      setSaveStatus(aiResume ? "Autopilot settings and résumé context saved." : "Autopilot settings saved.");
+      setSaveStatus("Autopilot settings and AI Resume saved.");
     } catch (error) {
       setSaveStatus(error.message || "Could not save Autopilot settings.", true);
     } finally {
@@ -403,36 +313,27 @@
 
   function renderRun() {
     const progress = state.progress || {};
-    const active = ["starting", "running", "paused"].includes(state.status);
     const labels = {
       stopped: "Autopilot stopped",
       starting: "Autopilot starting",
       running: "Autopilot running",
       paused: "Autopilot paused",
-      completed: Number(progress.draftsPrepared || 0) >= Math.max(1, Number(state.effectiveDraftLimit || settings.draftLimit || 1))
-        ? "Draft target reached"
-        : "Scan completed",
+      completed: "Draft plan completed",
       "stopped-by-user": "Autopilot stopped",
       error: "Autopilot error"
     };
     el.runTitle.textContent = labels[state.status] || "Autopilot stopped";
     el.statusPill.textContent = String(state.status || "stopped").replace(/-/g, " ").replace(/^./, (letter) => letter.toUpperCase());
     el.statusPill.classList.toggle("saved", ["running", "completed"].includes(state.status));
-    el.runAction.textContent = state.current?.action || "Open LinkedIn My Network → Connections or a People search filtered to 1st-degree connections, then start Autopilot.";
-    el.runControl.textContent = state.status === "paused" ? "Resume Campaign" : ["starting", "running"].includes(state.status) ? "Pause Campaign" : "Start Campaign";
-    el.runControl.classList.toggle("running", active);
-    el.runStop.classList.toggle("hidden", !active);
+    el.runAction.textContent = state.current?.action || "Open LinkedIn My Network → Connections or a People search filtered to 1st-degree connections, then start Autopilot from the side panel.";
     el.draftCount.textContent = Number(progress.draftsPrepared || 0);
-    el.queueCount.textContent = Math.max(1, Number(state.effectiveDraftLimit || settings.draftLimit || 1));
+    el.queueCount.textContent = Math.max(1, Number(settings.draftLimit || 1));
     el.checkedCount.textContent = Number(progress.checked || 0);
     el.matchedCount.textContent = Number(progress.matched || 0);
     el.skippedCount.textContent = Number(progress.skipped || 0);
     el.errorCount.textContent = Number(progress.errors || 0);
-    const target = Math.max(1, Number(state.effectiveDraftLimit || settings.draftLimit || 1));
+    const target = Math.max(1, Number(settings.draftLimit || 1));
     el.progressBar.style.width = `${Math.min(100, (Number(progress.draftsPrepared || 0) / target) * 100)}%`;
-    const dailyLimit = Math.max(1, Number(settings.dailyActionLimit || 45));
-    const dailyPrepared = Math.max(0, Number(dailyUsage.prepared || 0));
-    el.dailyUsage.textContent = `${dailyPrepared} of ${dailyLimit} prepared drafts used today. Autopilot never clicks Send.`;
     const code = state.lastErrorCode || state.lastDiagnosticCode || "";
     let detail = state.lastError || state.lastDiagnostic || "";
     const rootCode = state.rootCauseCode || (code === "AP-E301" ? state.lastDiagnosticCode : "");
@@ -457,7 +358,7 @@
       return summary;
     }, {});
     el.memorySummary.textContent = profileMemory.length
-      ? `${profileMemory.length.toLocaleString()} remembered · ${Number(counts.saved || 0)} saved · ${Number(counts.rejected || 0)} rejected · ${Number(counts.failed || 0)} retryable technical failures. Saved and deliberately skipped profiles stay protected; technical failures retry automatically.`
+      ? `${profileMemory.length.toLocaleString()} remembered · ${Number(counts.saved || 0)} saved · ${Number(counts.rejected || 0)} rejected · ${Number(counts.failed || 0)} failed. Future runs skip these profiles until memory is cleared.`
       : "No saved profile memory yet. Every checked profile will be remembered after the next run.";
   }
 
@@ -472,7 +373,7 @@
 
   function renderResume() {
     el.resumeProfiles.replaceChildren();
-    el.resumeCount.textContent = aiResume?.base64 ? "Ready" : "Optional";
+    el.resumeCount.textContent = aiResume?.base64 ? "Saved" : "Missing";
     el.resumeCount.classList.toggle("saved", Boolean(aiResume?.base64));
 
     const card = document.createElement("article");
@@ -521,8 +422,8 @@
     const note = document.createElement("p");
     note.className = "ap-resume-note";
     note.textContent = aiResume
-      ? `${formatBytes(aiResume.size)} · ${aiResume.extractedText.length.toLocaleString()} extracted characters · ${settings.attachResume ? "attachment enabled" : "personalisation context only"}`
-      : "Optional: add a résumé to improve sender context. Autopilot can still prepare text-only drafts without it.";
+      ? `${formatBytes(aiResume.size)} · ${aiResume.extractedText.length.toLocaleString()} extracted characters · attached to every completed draft`
+      : "Autopilot cannot start until an attachable AI Resume is saved.";
 
     choose.addEventListener("click", () => fileInput.click());
     fileInput.addEventListener("change", async () => {
@@ -656,7 +557,7 @@
     const codes = [
       ['AP-W001', 'Scan ended because LinkedIn loaded no additional cards.'],
       ['AP-W002', 'Text draft saved, but résumé attachment was not confirmed.'],
-      ['AP-W003', 'The model response was replaced by a verified local personalised draft.'],
+      ['AP-W003', 'Direct compose failed; the card-level Message fallback is being tried.'],
       ['AP-S101', 'Not verified as a 1st-degree connection.'],
       ['AP-S102', 'Previously drafted profile.'],
       ['AP-S103', 'The connection did not match the selected contact mode or filters.'],
@@ -665,6 +566,8 @@
       ['AP-S106', 'Relevant person detected, but no supported Message action was found.'],
       ['AP-S107', 'Existing conversation protected.'],
       ['AP-S108', 'Existing draft text protected.'],
+      ['AP-W003', 'Cloud AI was rate-limited or unavailable; a local personalised draft was used.'],
+      ['AP-E201', 'AI provider and local fallback both failed.'],
       ['AP-E202', 'LinkedIn composer did not open.'],
       ['AP-E203', 'Recipient verification failed.'],
       ['AP-E204', 'Message editor not found.'],

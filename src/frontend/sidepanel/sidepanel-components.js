@@ -75,6 +75,18 @@
         ),
         h(
           "button",
+          {
+            id: "autopilotHeaderButton",
+            className: "ib-icon-button ib-autopilot-header-button btn p-0",
+            type: "button",
+            title: "Start Autopilot",
+            "aria-label": "Start Autopilot",
+            "aria-pressed": "false"
+          },
+          icon("M13.25 2 4.5 13.2h6.15L9.7 22 19.5 9.05h-6.15L13.25 2Z")
+        ),
+        h(
+          "button",
           { id: "settingsButton", className: "ib-icon-button btn p-0", type: "button", title: "Open settings", "aria-label": "Open settings" },
           icon("M19.4 13a7.8 7.8 0 0 0 .05-1 7.8 7.8 0 0 0-.05-1l2.1-1.65-2-3.46-2.5 1a8 8 0 0 0-1.73-1L14.9 3h-4l-.38 2.9a8 8 0 0 0-1.73 1l-2.5-1-2 3.46L6.4 11a7.8 7.8 0 0 0-.05 1 7.8 7.8 0 0 0 .05 1l-2.1 1.65 2 3.46 2.5-1a8 8 0 0 0 1.73 1l.38 2.9h4l.38-2.9a8 8 0 0 0 1.73-1l2.5 1 2-3.46L19.4 13ZM13 15.5A3.5 3.5 0 1 1 13 8a3.5 3.5 0 0 1 0 7.5Z")
         )

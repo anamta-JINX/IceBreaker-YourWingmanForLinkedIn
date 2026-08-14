@@ -12,12 +12,12 @@ Autopilot automatically prepares unsent LinkedIn inbox drafts for hiring contact
 4. Classify the contact using IceBreaker’s fixed hiring-contact rules.
 5. Skip unrelated profiles.
 6. Confirm a supported Message action exists.
-7. Generate the existing IceBreaker DM using the saved AI Resume and target role.
+7. Generate the existing IceBreaker DM using the target role and any saved résumé/profile context.
 8. Open the Message composer.
 9. Verify the recipient.
 10. Paste the complete message.
-11. Attach the saved AI Resume.
-12. Confirm both message and attachment.
+11. Optionally attach the saved résumé when attachment is enabled.
+12. Confirm the message and any enabled attachment.
 13. Minimise the composer without sending.
 14. Continue until the draft limit is reached or the user stops the run.
 
@@ -38,12 +38,13 @@ Autopilot automatically prepares unsent LinkedIn inbox drafts for hiring contact
 - Pause
 - Resume
 - Stop
+- Navbar lightning control
 - Draft limit
-- Time span
+- Daily safety limit (maximum 45 prepared drafts)
 - Target role
 - Vibe
 - Length
-- AI Resume upload
+- Optional AI Resume upload and attachment
 - Progress counters
 - Saved draft records
 - Activity and error codes
@@ -54,6 +55,7 @@ Autopilot automatically prepares unsent LinkedIn inbox drafts for hiring contact
 - Never submit with Enter.
 - Verify the recipient before inserting text or a file.
 - Process one profile at a time.
-- Do not count a draft unless the message and AI Resume are confirmed.
+- Do not count a draft unless the message and any enabled attachment are confirmed.
+- Enforce the configured daily prepared-draft limit.
 - Skip profiles without a supported Message action.
 - Stop on recipient mismatch when the safety setting is enabled.

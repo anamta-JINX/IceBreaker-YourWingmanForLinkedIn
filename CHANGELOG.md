@@ -1,5 +1,43 @@
 # Changelog
 
+## 1.4.34
+
+- Fixed the retained Ollama response-stream reader that could exhaust browser connections and surface `E-AI`/`E-GEN` after several successful generations.
+- Added cancellable automatic recovery for transient Ollama, OpenRouter, and Groq failures, including provider `Retry-After` cooldowns, one bounded retry, official-key rotation, and model fallback.
+- Serialized generation hand-offs so rapid hover/refresh changes close the previous provider request before starting another one instead of consuming overlapping rate-limit budget.
+- Automatically clears stale Manifest V3 `busy` generation state after a service-worker interruption, removing the need to reload the extension.
+- Preserved a usable first draft when only the optional length-polish request is throttled, and added precise provider error codes in place of generic failures.
+
+## 1.4.33
+
+- Removed OpenRouter's blocking model-catalog preflight so the selected model starts generating immediately.
+- Routed OpenRouter to its lowest-latency healthy endpoints, bounded slow requests, limited credential rotation to actual key failures, and reduced fallback attempts from six to one.
+- Compacted DMs, comments, and conversation prompts around the facts that affect the reply instead of sending oversized résumé and transcript payloads to local models.
+- Reduced Ollama context and output budgets for short LinkedIn writing, disabled avoidable thinking, used the lightest supported GPT-OSS reasoning mode, and retained streaming generation.
+- Kept the selected Ollama model resident, sorted new local-model choices by size, and excluded embedding-only models from the chat picker.
+- Added safe complete-sentence cleanup before the AI repair pass so an already-valid draft does not trigger a second full generation.
+- Added automated performance contracts for provider timeouts, prompt limits, fallback ordering, reasoning mode, and output budgets.
+
+## 1.4.32
+
+- Rebuilt the Autopilot prompt around explicit job-seeker and hiring-contact roles, verified facts, a primary target role, and strict no-invention/no-false-attachment rules.
+- Added deterministic verified drafts for every length and attachment state; invalid, empty, interrupted, or provider-limited Ollama output now falls back instead of becoming a run error.
+- Increased Ollama completion headroom and made local-model Autopilot output lower-temperature and easier to validate.
+- Opens and verifies the LinkedIn composer before generating, then re-checks the recipient and overwrite guard before inserting text.
+- Added a third composer activation method, longer bounded waits, and selectors for current LinkedIn message editors.
+- Made technical failures retryable on future runs while keeping saved drafts and deliberate filter skips protected.
+- Removed the obsolete generic generation error code from runtime and documentation, and reset its old failed-memory records during upgrade.
+- Added automated coverage for prompt direction, hallucination guards, word ranges, attachment claims, safe fallback drafts, retry memory, and composer recovery.
+
+## 1.4.31
+
+- Added a lightning Autopilot button between the Ready indicator and Settings; it starts, pauses, or resumes the current hiring-contact run.
+- Made recruiters, HR/People teams, founders, CEOs, CTOs, engineering leaders, and other hiring decision-makers the default target audience.
+- Reworked Autopilot Settings into Targeting, Filters, Safety, and Message tabs with a live run monitor, queue, optional résumé context, and diagnostics.
+- Added a hard configurable daily safety limit capped at 45 prepared drafts and kept every message unsent for manual review.
+- Made résumé upload and attachment optional while retaining résumé-based personalisation when context is available.
+- Added Start, Pause, Resume, and Stop controls directly to the Autopilot dashboard.
+
 ## 1.5.14
 
 - Fixed Alt+G Conversation regeneration so it captures the open thread before opening the side panel, removing the panel-activation race behind `E-RPL-16` and intermittent `E-RPL-08` failures.
@@ -442,13 +480,13 @@
 - Fixed Conversation mode so hovering an inbox conversation row opens and reads the visible chat before generating.
 - Fixed Alt+C conversation capture by awaiting the asynchronous open-and-read operation.
 - Added stronger LinkedIn inbox/thread selectors and recent-message extraction fallbacks.
-- Added a safe conversation-preview fallback instead of returning E-AI when LinkedIn delays rendering the thread.
+- Added a safe conversation-preview fallback instead of returning a generic generation error when LinkedIn delays rendering the thread.
 - Improved newest-sender detection so replies continue the visible conversation naturally.
 
 
 ## 1.4.0 — OpenRouter reliability fix
 
-- Retries empty OpenRouter responses instead of surfacing generic `E-AI`.
+- Retries empty OpenRouter responses instead of surfacing a generic generation error.
 - Discovers current free text models from OpenRouter and uses them as automatic fallbacks.
 - Avoids mandatory-reasoning models and disables reasoning only when a model explicitly supports `effort: none`.
 - Increases OpenRouter output headroom so reasoning tokens cannot consume the entire response budget as easily.
@@ -478,7 +516,7 @@
 - Builds the private embedded Groq/OpenRouter key pool into `src/backend/config/official-api-keys.js`, so Official API mode no longer depends on loading `.env` at runtime.
 - Uses `llama-3.1-8b-instant` as Groq's stable low-latency default and falls back to it when a selected Groq model is blocked or unavailable.
 - Uses `openrouter/free` as the no-credit default and falls back to it when another OpenRouter model cannot run.
-- Preserves provider status/type details so API failures map to useful error codes instead of generic `E-AI`.
+- Preserves provider status/type details so API failures map to useful provider-specific error codes.
 - Removes the accidental second generation request caused by conflicting word ranges.
 - Warms and keeps Ollama loaded, caches model detection, reduces prompt/context size, and caps output tokens for faster local generation.
 

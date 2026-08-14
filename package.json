@@ -1,14 +1,18 @@
 {
   "name": "icebreaker-linkedin-extension",
-  "version": "1.5.14",
+  "version": "1.4.34",
+  "type": "module",
   "private": true,
   "description": "IceBreaker Chrome extension with React and locally bundled Bootstrap 5, featuring PDF-matched compact side-panel modes, exact Conversation and Comments controls, live context, and hovered-profile photos.",
   "scripts": {
     "validate:manifest": "node scripts/github/validate-extension.mjs",
     "validate:react": "node scripts/github/validate-react-structure.mjs",
-    "validate": "npm run validate:manifest && npm run validate:react && npm run validate:bootstrap && npm run validate:conversation-shortcut",
+    "validate": "npm run validate:manifest && npm run validate:react && npm run validate:bootstrap && npm run validate:conversation-shortcut && npm run validate:autopilot && npm run validate:autopilot-generation && npm run validate:provider-performance",
     "validate:bootstrap": "node scripts/github/validate-bootstrap-structure.mjs",
-    "validate:conversation-shortcut": "node scripts/github/validate-conversation-shortcut.mjs"
+    "validate:conversation-shortcut": "node scripts/github/validate-conversation-shortcut.mjs",
+    "validate:autopilot": "node scripts/github/validate-autopilot.mjs",
+    "validate:autopilot-generation": "node scripts/github/validate-autopilot-generation.mjs",
+    "validate:provider-performance": "node scripts/github/validate-provider-performance.mjs"
   },
   "engines": {
     "node": ">=18"

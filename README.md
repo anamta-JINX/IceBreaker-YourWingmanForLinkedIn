@@ -5,7 +5,7 @@
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-0A66C2.svg" alt="MIT License"></a>
   <img src="https://img.shields.io/badge/Chrome-Manifest%20V3-4285F4?logo=googlechrome&logoColor=white" alt="Chrome Manifest V3">
-  <img src="https://img.shields.io/badge/Version-1.5.14-0A66C2" alt="Version 1.5.14">
+  <img src="https://img.shields.io/badge/Version-1.4.34-0A66C2" alt="Version 1.4.34">
   <img src="https://img.shields.io/badge/JavaScript-Vanilla-F7DF1E?logo=javascript&logoColor=111" alt="Vanilla JavaScript">
   <img src="https://img.shields.io/badge/AI-Groq%20%7C%20OpenRouter%20%7C%20Ollama-111827" alt="AI providers">
 </p>
@@ -116,25 +116,27 @@ flowchart TD
     B --> C[Read the current card]
     C --> D{Passes saved matching rules?}
     D -->|No| E[Record skip reason]
-    E --> N[Move to next card]
+    E --> O[Move to next card]
     D -->|Yes| F[Generate personalised DM]
     F --> G[Open the correct LinkedIn composer]
     G --> H[Verify recipient]
     H --> I[Paste generated text]
-    I --> J[Attach saved résumé]
-    J --> K[Verify text and attachment]
-    K --> L[Leave message unsent as a draft]
-    L --> M[Remember completed profile]
-    M --> N
-    N --> C
+    I --> J{Attachment enabled?}
+    J -->|Yes| K[Attach and verify résumé]
+    J -->|No| L[Verify saved text]
+    K --> L
+    L --> M[Leave message unsent as a draft]
+    M --> N[Remember completed profile]
+    N --> O
+    O --> C
 ```
 
 ### Matching modes
 
 Autopilot can prepare drafts for:
 
-1. **Every visible connection that passes filters** — the default.
-2. **Recruiters and hiring decision-makers only**.
+1. **Recruiters and hiring decision-makers only** — the default.
+2. **Every visible connection that passes filters**.
 3. **Only custom titles or phrases** entered by the user.
 
 Company, location, exclusion, duplicate, previous-run, existing-draft, and recipient-verification rules can be applied before a profile is completed.
@@ -146,7 +148,7 @@ A profile counts as successfully prepared only after IceBreaker verifies:
 ```text
 correct recipient
 AND generated message inserted
-AND résumé attached
+AND enabled résumé attachment confirmed
 AND draft remains in the LinkedIn composer
 ```
 
@@ -154,7 +156,7 @@ Skipped and failed profiles do not consume the successful-draft target. Profiles
 
 ### Safety boundary
 
-IceBreaker does **not** click LinkedIn’s Send button. It prepares the composer, leaves the message unsent, and lets the user review the recipient, wording, and attachment.
+IceBreaker does **not** click LinkedIn’s Send button. It enforces a configurable daily limit of up to 45 prepared drafts, leaves every message unsent, and lets the user review the recipient, wording, and optional attachment.
 
 ---
 

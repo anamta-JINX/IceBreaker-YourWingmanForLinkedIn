@@ -68,7 +68,13 @@ async function collectCssFiles(directory, base = "") {
   return found;
 }
 
-const runtimeCssFiles = await collectCssFiles(path.join(root, "src"), "src");
+// Only manifest-reachable runtime trees are extension code. Migration/source
+// scaffolds may coexist under src without being loaded by Chrome and must not
+// make the packaged runtime validation fail.
+const runtimeCssFiles = [
+  ...await collectCssFiles(path.join(root, "src", "backend"), "src/backend"),
+  ...await collectCssFiles(path.join(root, "src", "frontend"), "src/frontend")
+];
 const allowedRuntimeCss = new Set(["src/frontend/vendor/bootstrap.min.css"]);
 for (const cssFile of runtimeCssFiles) {
   if (!allowedRuntimeCss.has(cssFile.replaceAll("\\", "/"))) {
